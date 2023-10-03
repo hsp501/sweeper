@@ -54,13 +54,13 @@ class test_sweeper(unittest.TestCase):
 
         return f"{serial}.{'_'.join(parts)}"
 
-    def generate_file_data(self):
-        max_files = 4
-        max_blocks = 4
-
-        # max_files = 50
-        # max_blocks = 32 * 1024 * 1024 // hash_config.block_size()
-        # max_blocks = 128
+    def generate_file_data(self, fewer: bool):
+        if fewer:
+            max_files = 4
+            max_blocks = 4
+        else:
+            max_files = 20
+            max_blocks = 16 * 1024 * 1024 // hash_config.block_size()
 
         dupl_files = []
         dist_files = []
@@ -90,12 +90,12 @@ class test_sweeper(unittest.TestCase):
 
         return dupl_files, dist_files
 
-    def make_files(self):
+    def make_files(self, fewer: bool):
         dir_base, dir_repo, dir_redu = self.resolve_path()
         if os.path.exists(dir_base):
             shutil.rmtree(dir_base)
 
-        dupl_files, dist_files = self.generate_file_data()
+        dupl_files, dist_files = self.generate_file_data(fewer)
 
         files_created = []
 
@@ -149,7 +149,7 @@ class test_sweeper(unittest.TestCase):
         return files_created
 
     def test_clean(self):
-        files = self.make_files()
+        files = self.make_files(True)
 
         if True:
             dir_base, dir_repo, dir_redu = self.resolve_path()

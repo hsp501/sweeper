@@ -160,11 +160,12 @@ class cleanup:
 
             if len(protected.duplicates) > 0:
                 serial = self._operation.log_soul(protected)
-                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                logs = [f"{serial}: {now}  {protected.path}"]
+                now = datetime.now().strftime('%H:%M')
+                head = f"{serial}: {now}".ljust(12)
+                logs = [f"{head}{protected.path}"]
                 for duplicate in protected.duplicates:
                     logs.append(
-                        f"{' ' * 2}- {str(duplicate.deletion_serial).ljust(6)}{duplicate.path}")
+                        f"{' ' * 2}- {str(duplicate.deletion_serial).ljust(8)}{duplicate.path}")
 
                 print('\n'.join(logs) + '\n')
 
