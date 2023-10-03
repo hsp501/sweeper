@@ -108,10 +108,14 @@ class cleanup:
             for item in file_items:
                 hashed_bytes += item.hashed_bytes
                 if item.flag_redundant:
-                    space_freed += item.saved_space
+                    if self._dry_run and item.soul:
+                        space_freed += item.size
+                    elif not self._dry_run:
+                        space_freed += item.saved_space
 
+        tense = 'will be ' if self._dry_run else ''
         print(
-            f"space freed: {util.convert_bytes(space_freed)} ({space_freed}), hash bytes: {util.convert_bytes(hashed_bytes)} ({hashed_bytes})")
+            f"space {tense}freed: {util.convert_bytes(space_freed)} ({space_freed}), hash bytes: {util.convert_bytes(hashed_bytes)} ({hashed_bytes})")
 
     def _group_by_size(self) -> int:
         files_counter = 0
