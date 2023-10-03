@@ -128,7 +128,10 @@ class cleanup:
         protected_items = list(
             filter(lambda item: not item.flag_redundant, file_items))
 
-        for redudant in filter(lambda item:  item.flag_redundant, file_items):
+        redudant_items = list(
+            filter(lambda item:  item.flag_redundant, file_items))
+
+        for redudant in redudant_items:
             assert (size == redudant.size)
 
             for protected in protected_items:
@@ -149,18 +152,17 @@ class cleanup:
         for item in file_items:
             item.close()
 
-        self._log(protected_items)
+        self._log(protected_items, redudant_items)
         sys.stdout.flush()
 
-    def _log(self, protected_items: list):
-        protected: file_item = None
+    def _log(self, protected_items: list, redudant_items: list):
+        now = datetime.now().strftime('%H:%M')
 
         for protected in protected_items:
             assert (not protected.flag_redundant)
 
             if len(protected.duplicates) > 0:
                 serial = self._operation.log_soul(protected)
-                now = datetime.now().strftime('%H:%M')
                 head = f"{serial}: {now}".ljust(12)
                 logs = [f"{head}{protected.path}"]
                 for duplicate in protected.duplicates:
@@ -168,6 +170,19 @@ class cleanup:
                         f"{' ' * 2}- {str(duplicate.deletion_serial).ljust(8)}{duplicate.path}")
 
                 print('\n'.join(logs) + '\n')
+
+        logs = None
+        head = f"{' ' * 2}+".ljust(12)
+        for redudant in redudant_items:
+            assert (redudant.flag_redundant)
+
+            if not redudant.soul:
+                if not logs:
+                    logs = [f"++: {now}"]
+                logs.append(f"{head}{redudant.path}")
+
+        if logs:
+            print('\n'.join(logs) + '\n')
 
     def _task_over(self) -> bool:
         return self._max_deletion > 0 and self._operation.deletion_serial >= self._max_deletion
