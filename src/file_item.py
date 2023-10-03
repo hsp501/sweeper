@@ -77,6 +77,10 @@ class file_item:
     def deletion_serial(self):
         return self._deletion_serial
 
+    @property
+    def hash_times(self):
+        return len(self._hashes)
+
     def get_hash(self, *, index: int, flag_update: bool, block_size: int, algorithm: str):
         cached = self._hashes.get(index)
         if cached:

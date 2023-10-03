@@ -81,13 +81,18 @@ class cleanup:
         self._directories[dir] = redundant
 
     def shrink(self):
+        self._operation.reset(True)
+
         start = datetime.now()
         print(
             f"{start.strftime('%Y-%m-%d %H:%M:%S')} begin to free disk space\n")
 
-        self._operation.reset(True)
+        files = self._group_by_size()
 
-        self._group_by_size()
+        end = datetime.now()
+        print(
+            f"{end.strftime('%Y-%m-%d %H:%M:%S')} file scan ended, total {files} files, spread over {len(self._file_size_dict)} size groups: {str(end - start)}\n")
+
         for size in sorted(self._file_size_dict.keys(), reverse=True):
             if self._task_over():
                 break
@@ -96,7 +101,7 @@ class cleanup:
 
         end = datetime.now()
         print(
-            f"{start.strftime('%Y-%m-%d %H:%M:%S')} free disk space ended: {str(end - start)}\n")
+            f"{end.strftime('%Y-%m-%d %H:%M:%S')} free disk space ended: {str(end - start)}\n")
 
         hashed_bytes = space_freed = 0
         for _, file_items in self._file_size_dict.items():
@@ -108,7 +113,8 @@ class cleanup:
         print(
             f"space freed: {util.convert_bytes(space_freed)} ({space_freed}), hash bytes: {util.convert_bytes(hashed_bytes)} ({hashed_bytes})")
 
-    def _group_by_size(self):
+    def _group_by_size(self) -> int:
+        files_counter = 0
         self._file_size_dict.clear()
 
         for dir, redundant in self._directories.items():
@@ -120,6 +126,9 @@ class cleanup:
                     if redundant:
                         item.mark_redundant()
                     self._file_size_dict.setdefault(size, []).append(item)
+                    files_counter += 1
+
+        return files_counter
 
     def _execute(self, size: int, file_items: list):
         algorithm = hash_config.algorithm()
@@ -152,10 +161,10 @@ class cleanup:
         for item in file_items:
             item.close()
 
-        self._log(protected_items, redudant_items)
+        self._log(block_size, protected_items, redudant_items)
         sys.stdout.flush()
 
-    def _log(self, protected_items: list, redudant_items: list):
+    def _log(self, block_size: int, protected_items: list, redudant_items: list):
         now = datetime.now().strftime('%H:%M')
 
         for protected in protected_items:
@@ -179,7 +188,9 @@ class cleanup:
             if not redudant.soul:
                 if not logs:
                     logs = [f"++: {now}"]
-                logs.append(f"{head}{redudant.path}")
+                hash_stat = f"[{redudant.blocks(block_size)}-{redudant.hash_times}]".ljust(
+                    10)
+                logs.append(f"{head}{hash_stat}{redudant.path}")
 
         if logs:
             print('\n'.join(logs) + '\n')
