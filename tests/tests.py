@@ -3,7 +3,7 @@ import random
 import shutil
 import unittest
 
-from sweeper import file_item, hash_config, sweeper
+from src import cleanup, file_item, hash_config
 
 
 class test_sweeper(unittest.TestCase):
@@ -56,8 +56,11 @@ class test_sweeper(unittest.TestCase):
 
     def generate_file_data(self):
         max_files = 4
-        max_blocks = 32 * 1024 * 1024 // hash_config.block_size()
         max_blocks = 4
+
+        # max_files = 50
+        # max_blocks = 32 * 1024 * 1024 // hash_config.block_size()
+        # max_blocks = 128
 
         dupl_files = []
         dist_files = []
@@ -148,15 +151,16 @@ class test_sweeper(unittest.TestCase):
     def test_clean(self):
         files = self.make_files()
 
-        dir_base, dir_repo, dir_redu = self.resolve_path()
+        if True:
+            dir_base, dir_repo, dir_redu = self.resolve_path()
 
-        cleaner = sweeper()
-        cleaner.watch(dir=dir_repo, redundant=False)
-        cleaner.watch(dir=dir_redu, redundant=True)
-        cleaner.clean()
+            cleaner = cleanup(0, False)
+            cleaner.watch(dir=dir_repo, redundant=False)
+            cleaner.watch(dir=dir_redu, redundant=True)
+            cleaner.shrink()
 
-        for file, flag_exist in files:
-            self.assertEqual(os.path.exists(file), flag_exist)
+            for file, flag_exist in files:
+                self.assertEqual(os.path.exists(file), flag_exist)
 
 
 if '__main__' == __name__:
