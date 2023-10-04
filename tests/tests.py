@@ -90,7 +90,7 @@ class test_sweeper(unittest.TestCase):
 
         return dupl_files, dist_files
 
-    def make_files(self, fewer: bool):
+    def make_files_v1(self, fewer: bool):
         dir_base, dir_repo, dir_redu = self.resolve_path()
         if os.path.exists(dir_base):
             shutil.rmtree(dir_base)
@@ -148,8 +148,47 @@ class test_sweeper(unittest.TestCase):
 
         return files_created
 
+    def make_files_v2(self):
+        dir_base, dir_repo, dir_redu = self.resolve_path()
+        if os.path.exists(dir_base):
+            shutil.rmtree(dir_base)
+
+        files_created = []
+
+        dupl_files, dist_files = self.generate_file_data(True)
+
+        name, block_bytes = dupl_files[0]
+        for i in range(0, 2):
+            flag_repo = (0 == i)
+
+            dir_dest = dir_repo if flag_repo else dir_redu
+            os.makedirs(os.path.join(dir_dest, 'sub-1'))
+
+            file_paths = []
+            file_paths.append(os.path.join(dir_dest, f"{name}.1"))
+            file_paths.append(os.path.join(dir_dest, f"{name}.2"))
+            file_paths.append(os.path.join(dir_dest, 'sub-1', f"{name}.3"))
+            for file_path in file_paths:
+                with open(file_path, 'wb') as file:
+                    file.write(block_bytes)
+                    files_created.append((file_path, flag_repo))
+
+        for name, block_bytes in dist_files:
+            dir_dest = dir_repo if 0 == random.randint(0, 1) else dir_redu
+            dir_dest = os.path.join(dir_dest, self.make_sub_dirs(3))
+            if not os.path.exists(dir_dest):
+                os.makedirs(dir_dest)
+
+            file_path = os.path.join(dir_dest, name)
+            with open(file_path, 'wb') as file:
+                file.write(block_bytes)
+                files_created.append((file_path, True))
+
+        return files_created
+
     def test_clean(self):
-        files = self.make_files(True)
+        # files = self.make_files_v1(True)
+        files = self.make_files_v2()
 
         if True:
             dir_base, dir_repo, dir_redu = self.resolve_path()

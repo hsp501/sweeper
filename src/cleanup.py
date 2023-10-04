@@ -92,7 +92,8 @@ class cleanup:
         end = datetime.now()
         print(
             f"{end.strftime('%Y-%m-%d %H:%M:%S')} file scan ended, total {files} files, spread over {len(self._file_size_dict)} size groups: {str(end - start)}\n")
-
+        sys.stdout.flush()
+        
         for size in sorted(self._file_size_dict.keys(), reverse=True):
             if self._task_over():
                 break
@@ -158,6 +159,8 @@ class cleanup:
                     if not self._dry_run:
                         redudant.mark_delete()
                         redudant.delete()
+
+                    break
 
             if self._task_over():
                 break
