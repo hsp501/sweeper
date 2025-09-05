@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<directories>
+    <protected role="files in these directories will stay the same">
+        <dir>/home/hsp501/x.data/stf_095h3/repo</dir>
+    </protected>
+    
+    <redudant role="files in these directories will be deleted if there are same files in protected directories">
+        <dir>/home/hsp501/x.data/stf_095h3/redu</dir>
+    </redudant>
+</directories>

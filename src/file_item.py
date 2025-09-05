@@ -31,8 +31,7 @@ class file_item:
 
     def mark_redundant(self):
         if self._flag_redundant:
-            raise AttributeError(
-                f"mark_redundant called more than once: {self._path}")
+            raise AttributeError(f"mark_redundant called more than once: {self._path}")
 
         self._flag_redundant = True
 
@@ -43,7 +42,8 @@ class file_item:
     def mark_delete(self):
         if not self._flag_redundant:
             raise AttributeError(
-                f"protected item can't be marked deletable: {self._path}")
+                f"protected item can't be marked deletable: {self._path}"
+            )
 
         self._flag_delete = True
 
@@ -55,9 +55,10 @@ class file_item:
     def saved_space(self) -> int:
         return self._saved_space
 
-    def update_duplicate(self, duplicate):
-        assert (not self._flag_redundant)
-        assert (isinstance(duplicate, file_item) and duplicate._flag_redundant)
+    def update_duplicate(self, duplicate, *, check_flag: bool = True):
+        if check_flag:
+            assert not self._flag_redundant
+            assert isinstance(duplicate, file_item) and duplicate._flag_redundant
 
         duplicate._soul = self
         self._duplicates.append(duplicate)
@@ -81,7 +82,9 @@ class file_item:
     def hash_times(self):
         return len(self._hashes)
 
-    def get_hash(self, *, index: int, flag_update: bool, block_size: int, algorithm: str):
+    def get_hash(
+        self, *, index: int, flag_update: bool, block_size: int, algorithm: str
+    ):
         cached = self._hashes.get(index)
         if cached:
             hash_hex, hash_size, hash_alg = cached
@@ -93,10 +96,11 @@ class file_item:
         else:
             if index >= self.blocks(block_size):
                 raise IndexError(
-                    f"size: {self._size}, index: {index}, block size: {block_size}, {self._path}")
+                    f"size: {self._size}, index: {index}, block size: {block_size}, {self._path}"
+                )
 
             if not self._file_handler:
-                self._file_handler = open(self._path, 'rb')
+                self._file_handler = open(self._path, "rb")
 
             if self._file_position != index * block_size:
                 self._file_handler.seek(index * block_size)

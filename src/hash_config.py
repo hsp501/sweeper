@@ -1,8 +1,8 @@
-class hash_config:
+class hashConfig:
     @staticmethod
     def algorithm() -> str:
-        return 'md5'
+        return "md5"
 
     @staticmethod
-    def block_size() -> int:
-        return 64 * 1024
+    def block_kb(first: bool) -> int:
+        return 128 if first else 64 * 1024
