@@ -1,3 +1,4 @@
+import argparse
 import os
 import socket
 import stat
@@ -10,7 +11,6 @@ from src import CMD, ChunkHash, HashDB, Util
 
 class Server:
     def __init__(self, config_file: str):
-        self._session = {}
         self._size_group = {}
 
         working_dir = os.path.dirname(os.path.abspath(__file__))
@@ -31,14 +31,18 @@ class Server:
         self._context = self._socket = None
 
     def start(self):
+        print("directory list:")
         for top in self._dirs:
+            print(f"{' ' * 3} {top}")
             self._scan(top)
+        print("")
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self._host, self._port))
             s.listen(1)
 
             while True:
+                self._session = {}
                 csocket, caddress = s.accept()
                 print(f"client connected: {caddress}")
                 self._handle_client(csocket)
@@ -75,9 +79,11 @@ class Server:
                 break
 
             path = self._filter(
-                request["filter_id"],
-                request["size"],
-                request["chunk_hashes"],
+                filter_id=request["filter_id"],
+                client_path=request["path"],
+                local=request["local"],
+                size=request["size"],
+                client_hash=request["chunk_hashes"],
             )
 
             Util.send_json(
@@ -90,7 +96,15 @@ class Server:
                 },
             )
 
-    def _filter(self, filter_id: str, size: int, client_hash: List) -> str:
+    def _filter(
+        self,
+        *,
+        filter_id: str,
+        client_path: str,
+        local: bool,
+        size: int,
+        client_hash: List,
+    ) -> str:
         if filter_id not in self._session:
             self._session[filter_id] = None
             if size in self._size_group:
@@ -98,6 +112,10 @@ class Server:
 
         while self._session[filter_id]:
             path = self._session[filter_id][0]
+            if local and path == client_path:
+                self._session[filter_id].pop(0)
+                continue
+
             if not self._check_hash(path, client_hash):
                 self._session[filter_id].pop(0)
             else:
@@ -146,9 +164,24 @@ class Server:
         return True
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="find & clean duplicate files to release disk space"
+    )
+
+    parser.add_argument(
+        "--yaml",
+        default="server.yaml",
+        help="the yaml config of directory list from where to compare file & release space",
+    )
+
+    return parser.parse_args()
+
+
 if "__main__" == __name__:
     try:
-        server = Server("server.yaml")
+        args = parse_args()
+        server = Server(args.yaml)
         server.start()
     except KeyboardInterrupt:
         pass

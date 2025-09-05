@@ -12,12 +12,14 @@ from src import CMD, ChunkHash, HashDB, Util
 
 
 class Client:
-    def __init__(self, config_file: str, max_delete: int, max_scan: int):
+    def __init__(self, config_file: str, max_delete: int, max_scan: int, local: bool):
         self._socket = None
 
         self._copy = {}
         self._zero, self._failed = [], []
         self._deleted, self._scaned, self._shrink_size = 0, 0, 0
+
+        self._local = local
         self._max_delete, self._max_scan = max_delete, max_scan
 
         working_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,21 +41,24 @@ class Client:
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._socket.connect((self._host, self._port))
 
+        print("directory list:")
+        for top in self._dirs:
+            print(f"{' ' * 3} {top}")
+        print("")
+
         for top in self._dirs:
             self._scan_dir(self._socket, top)
 
-    def stop(self):
+    def stop(self) -> str:
         if self._socket:
             try:
                 self._socket.close()
             except Exception:
                 pass
 
-        log = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "log",
-            f"shrink.{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-        )
+        log = f"shrink.{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log", log)
+        os.makedirs(os.path.dirname(log), exist_ok=True)
 
         with open(log, "w", encoding="utf-8") as f:
             yaml.dump(
@@ -72,9 +77,11 @@ class Client:
                 default_flow_style=False,
             )
 
+        return log
+
     def _scan_dir(self, tcp_socket, top: str):
         for root, _, files in os.walk(top):
-            print(f"{datetime.now().strftime('%H:%M:%S')} shrink {root}")
+            print(f"{datetime.now().strftime('%H:%M:%S')} {root}")
 
             for file in files:
                 path = os.path.join(root, file)
@@ -100,6 +107,8 @@ class Client:
                             {
                                 "command": CMD.FILTER,
                                 "filter_id": filter_id,
+                                "path": path,
+                                "local": self._local,
                                 "size": fstat.st_size,
                                 "chunk_hashes": chunk_hashes,
                             },
@@ -126,7 +135,7 @@ class Client:
                             if server not in self._copy:
                                 self._copy[server] = [
                                     {
-                                        "size": f"fstat.st_size - {Util.bytes_readable(fstat.st_size)}"
+                                        "size": f"{fstat.st_size} - {Util.bytes_readable(fstat.st_size)}"
                                     }
                                 ]
                             self._copy[server].append(path)
@@ -216,15 +225,22 @@ def parse_args():
         help="max number of files to scan",
     )
 
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        default=False,
+        help="client & server running on local mode, don't compare the same path file",
+    )
+
     return parser.parse_args()
 
 
 if "__main__" == __name__:
     try:
         args = parse_args()
-        client = Client(args.yaml, args.delete, args.scan)
+        client = Client(args.yaml, args.delete, args.scan, args.local)
         client.start()
     except KeyboardInterrupt:
         pass
     finally:
-        client.stop()
+        print(client.stop())
