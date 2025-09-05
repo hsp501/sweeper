@@ -1,6 +1,4 @@
-# server: tcp://s.access-connector.com:8000
-server: tcp://localhost:5555
+server: localhost:5555
 hash_db: client.db
 dirs:
   - /home/hsp501/x.data/code/python/quantitative_trade/track_trade/data/market/archive
-  # - /home/hsp501/x.data/code/python/quantitative_trade/track_trade/data/market/raw

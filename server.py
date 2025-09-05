@@ -1,12 +1,11 @@
-import json
 import os
+import socket
 import stat
 from typing import List
 
 import yaml
-import zmq
 
-from src import CMD, ChunkHash, HashDB
+from src import CMD, ChunkHash, HashDB, Util
 
 
 class Server:
@@ -22,8 +21,10 @@ class Server:
             self._dirs = []
             for dir in config["dirs"]:
                 self._dirs.append(os.path.abspath(dir))
-            self._bind = config["bind"]
             self._server_id = config["id"]
+            bind = config["bind"].split(":")
+            self._host = bind[0]
+            self._port = int(bind[1]) if (len(bind) == 2) else 5555
 
         self._ch = ChunkHash()
         self._db = HashDB(os.path.join(working_dir, config["hash_db"]))
@@ -33,27 +34,14 @@ class Server:
         for top in self._dirs:
             self._scan(top)
 
-        self._context = zmq.Context()
-        self._socket = self._context.socket(zmq.ROUTER)
-        self._socket.bind(self._bind)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((self._host, self._port))
+            s.listen(1)
 
-        while True:
-            client_id, message = self._socket.recv_multipart()
-            message = json.loads(message.decode())
-            if message["command"] == CMD.FILTER:
-                path = self._filter(
-                    message["filter_id"],
-                    message["size"],
-                    message["chunk_hashes"],
-                )
-
-                reply = {
-                    "command": CMD.ECHO_FILTER,
-                    "server_id": self._server_id,
-                    "filter_id": message["filter_id"],
-                    "matched_file": path,
-                }
-                self._socket.send_multipart([client_id, json.dumps(reply).encode()])
+            while True:
+                csocket, caddress = s.accept()
+                print(f"client connected: {caddress}")
+                self._handle_client(csocket)
 
     def stop(self):
         if self._socket:
@@ -75,6 +63,32 @@ class Server:
                     if fstat.st_size not in self._size_group:
                         self._size_group[fstat.st_size] = []
                     self._size_group[fstat.st_size].append(path)
+
+    def _handle_client(self, csocket: socket.socket):
+        while True:
+            request = Util.recv_json(csocket)
+            if not request:
+                break
+
+            if request["command"] != CMD.FILTER:
+                csocket.close()
+                break
+
+            path = self._filter(
+                request["filter_id"],
+                request["size"],
+                request["chunk_hashes"],
+            )
+
+            Util.send_json(
+                csocket,
+                {
+                    "command": CMD.ECHO_FILTER,
+                    "server_id": self._server_id,
+                    "filter_id": request["filter_id"],
+                    "matched_file": path,
+                },
+            )
 
     def _filter(self, filter_id: str, size: int, client_hash: List) -> str:
         if filter_id not in self._session:
@@ -105,7 +119,7 @@ class Server:
                 mtime=fs.st_mtime,
             )
             assert -1 != fid
-            print(f"file to db: {os.path.basename(path)}")
+            print(f"{' ' * 3}{os.path.basename(path)}")
 
         if not server_hash:
             server_hash = []
@@ -120,7 +134,7 @@ class Server:
                 assert self._db.add_chunk_hashes(
                     fid=fid, hashes=[(serial, blk_size, hash)]
                 )
-                print(f"hash to db: {os.path.basename(path)} - [{serial:03d}]")
+                print(f"{' ' * 3}{os.path.basename(path)} - [{serial:03d}]")
 
                 server_hash.append(
                     {"serial": serial, "block_size": blk_size, "hash": hash}

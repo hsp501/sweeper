@@ -1,19 +1,20 @@
 import argparse
 import hashlib
-import json
 import os
+import socket
 import stat
 from datetime import datetime
 from typing import List, Optional, Tuple
 
 import yaml
-import zmq
 
 from src import CMD, ChunkHash, HashDB, Util
 
 
 class Client:
     def __init__(self, config_file: str, max_delete: int, max_scan: int):
+        self._socket = None
+
         self._copy = {}
         self._zero, self._failed = [], []
         self._deleted, self._scaned, self._shrink_size = 0, 0, 0
@@ -27,20 +28,27 @@ class Client:
             self._dirs = []
             for dir in config["dirs"]:
                 self._dirs.append(os.path.abspath(dir))
-            self._server = config["server"]
+            server = config["server"].split(":")
+            self._host = server[0]
+            self._port = int(server[1]) if len(server) == 2 else 5555
 
         self._ch = ChunkHash()
         self._db = HashDB(os.path.join(working_dir, config["hash_db"]))
 
     def start(self):
-        context = zmq.Context()
-        socket = context.socket(zmq.DEALER)
-        socket.connect(self._server)
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._socket.connect((self._host, self._port))
 
         for top in self._dirs:
-            self._scan_dir(socket, top)
+            self._scan_dir(self._socket, top)
 
     def stop(self):
+        if self._socket:
+            try:
+                self._socket.close()
+            except Exception:
+                pass
+
         log = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "log",
@@ -64,7 +72,7 @@ class Client:
                 default_flow_style=False,
             )
 
-    def _scan_dir(self, socket, top: str):
+    def _scan_dir(self, tcp_socket, top: str):
         for root, _, files in os.walk(top):
             print(f"{datetime.now().strftime('%H:%M:%S')} shrink {root}")
 
@@ -87,16 +95,21 @@ class Client:
                     blocks = self._ch.blocks(path)
                     filter_id = hashlib.md5(path.encode("utf-8")).hexdigest()
                     while True:
-                        socket.send_json(
+                        Util.send_json(
+                            tcp_socket,
                             {
                                 "command": CMD.FILTER,
                                 "filter_id": filter_id,
                                 "size": fstat.st_size,
                                 "chunk_hashes": chunk_hashes,
-                            }
+                            },
                         )
-                        echo = json.loads(socket.recv().decode())
-                        assert filter_id == echo["filter_id"]
+                        echo = Util.recv_json(tcp_socket)
+                        assert (
+                            echo
+                            and filter_id == echo["filter_id"]
+                            and CMD.ECHO_FILTER == echo["command"]
+                        )
 
                         if echo["matched_file"] is None:
                             # print(f"{' ' * 3}+++ {file}")

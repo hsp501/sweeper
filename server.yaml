@@ -1,5 +1,5 @@
 id: synology
-bind: tcp://*:5555
+bind: 0.0.0.0:5555
 hash_db: server.db
 dirs:
   - /home/hsp501/x.data/code/python/quantitative_trade/track_trade/data/market
