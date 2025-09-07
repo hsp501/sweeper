@@ -2,74 +2,191 @@ import argparse
 import hashlib
 import os
 import socket
-import stat
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import yaml
 
-from src import CMD, ChunkHash, HashDB, Util
+from src import Command, Key, Sweeper, Util
 
 
-class Client:
-    def __init__(self, config_file: str, max_delete: int, max_scan: int, local: bool):
-        self._socket = None
+class Client(Sweeper):
+    def __init__(
+        self, yaml_file: str, max_delete: int, max_scan: int, local_mode: bool
+    ):
+        super().__init__(True, yaml_file, max_delete=max_delete, max_scan=max_scan)
 
-        self._copy = {}
-        self._zero, self._failed = [], []
-        self._deleted, self._scaned, self._shrink_size = 0, 0, 0
-
-        self._local = local
-        self._max_delete, self._max_scan = max_delete, max_scan
-
-        working_dir = os.path.dirname(os.path.abspath(__file__))
-
-        with open(os.path.join(working_dir, config_file), "r") as f:
-            config = yaml.safe_load(f)
-
-            self._dirs = []
-            for dir in config["dirs"]:
-                self._dirs.append(os.path.abspath(dir))
-            server = config["server"].split(":")
-            self._host = server[0]
-            self._port = int(server[1]) if len(server) == 2 else 5555
-
-        self._ch = ChunkHash()
-        self._db = HashDB(os.path.join(working_dir, config["hash_db"]))
+        self._local_mode = local_mode
 
     def start(self):
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._show_sweep_dirs()
+
+        self._socket: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._socket.connect((self._host, self._port))
 
-        print("directory list:")
         for top in self._dirs:
-            print(f"{' ' * 3} {top}")
-        print("")
+            self._shrink(self._socket, top)
 
-        for top in self._dirs:
-            self._scan_dir(self._socket, top)
+    def stop(self) -> Any:
+        super().stop()
 
-    def stop(self) -> str:
-        if self._socket:
-            try:
-                self._socket.close()
-            except Exception:
-                pass
+        return self._flush_log()
 
-        log = f"shrink.{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    def _shrink(self, _socket: socket.socket, top: str):
+        for root, _, files in os.walk(top):
+            Util.debug(root, fmt_time=True)
+
+            for file in files:
+                path = os.path.join(root, file)
+                fstat = os.stat(path, follow_symlinks=False)
+                if not Util.important_file(fstat, root, file):
+                    if 0 == fstat.st_size:
+                        self._stat.update_empty(path)
+                    continue
+                self._stat.on_scan()
+
+                request_id = f"{self._id}-{path}"
+                request_id = hashlib.md5(request_id.encode("utf-8")).hexdigest()
+
+                if self._client_mode and self._stat.skip_scan(path):
+                    Util.debug(f"{file}{'~' * 5}SKIP", fmt_indent=3, fmt_time=True)
+                    continue
+
+                if not self._compare_size(_socket, request_id, path, fstat):
+                    continue
+
+                self._compare_hash(_socket, request_id, path, fstat)
+
+                if self._stat.reach_target():
+                    return
+
+    def _compare_size(
+        self, _socket: socket.socket, request_id, path: str, fstat: os.stat_result
+    ) -> bool:
+        if not self._send_json(
+            _socket,
+            self._req_size(
+                request_id=request_id,
+                local_mode=self._local_mode,
+                path=path,
+                size=fstat.st_size,
+            ),
+        ):
+            return False
+
+        echo_message = self._recv_json(_socket)
+        if not (
+            echo_message
+            and Key.RESULT in echo_message
+            and Command.ECHO_CHECK_SIZE == echo_message.get(Key.COMMAND, None)
+            and request_id == echo_message.get(Key.REQUEST_ID, None)
+            and fstat.st_size == echo_message.get(Key.SIZE, -1)
+        ):
+            info = "unexpected echo message"
+            if echo_message:
+                info += f" [{str(echo_message)}]"
+            Util.debug(info, fmt_indent=3, fmt_time=True)
+            return False
+
+        return echo_message[Key.RESULT] > 0
+
+    def _compare_hash(
+        self, _socket: socket.socket, request_id, path: str, fstat: os.stat_result
+    ):
+        fid, chunk_hashes = self._file_details(
+            path=path, size=fstat.st_size, mtime=fstat.st_mtime, max_serial=1
+        )
+        if not chunk_hashes:
+            self._record_file_with_error(path)
+            return
+
+        blocks = self._ch.blocks(fstat.st_size)
+        while True:
+            # check chunk hashes
+            error, echo_message = self._check_chunk_hashes(
+                _socket,
+                self._req_hash(
+                    request_id=request_id,
+                    local_mode=self._local_mode,
+                    path=path,
+                    size=fstat.st_size,
+                    chunk_hashes=chunk_hashes,
+                ),
+            )
+            # unique file found or error
+            if error or echo_message[Key.RESULT] is None:
+                break
+
+            # no more chunk
+            if len(chunk_hashes) == blocks:
+                if self._stat.on_duplicate(
+                    server_id=echo_message[Key.DEVICE_ID],
+                    server_path=echo_message[Key.RESULT],
+                    chunk_hashes=chunk_hashes,
+                    client_path=path,
+                    free_space=fstat.st_size,
+                    local_mode=self._local_mode,
+                ):
+                    Util.debug(
+                        f"{os.path.basename(path)}{'-' * 5}COPY",
+                        fmt_indent=12,
+                    )
+                break
+
+            # update next chunk
+            self._update_next_chunk(fid, path, chunk_hashes)
+
+    def _check_chunk_hashes(
+        self, _socket: socket.socket, message: Dict
+    ) -> Tuple[bool, Any, Dict]:
+        # return value (error_flag, echo_message)
+        if not self._send_json(_socket, message):
+            return True, None
+
+        echo_message = self._recv_json(_socket)
+        if not (
+            echo_message
+            and Key.RESULT in echo_message
+            and Command.ECHO_CHECK_HASH == echo_message.get(Key.COMMAND, None)
+            and message[Key.REQUEST_ID] == echo_message.get(Key.REQUEST_ID, None)
+        ):
+            info = "unexpected echo message"
+            if echo_message:
+                info += f" [{str(echo_message)}]"
+            Util.debug(info, fmt_indent=3, fmt_time=True)
+            return True, None
+
+        return False, echo_message
+
+    def _update_next_chunk(self, fid: int, path: str, chunk_hashes: List):
+        serial = len(chunk_hashes) + 1
+        hash, block_size = self._ch.block_hash(path=path, serial=serial)
+        self._stat.on_hash(block_size)
+        if -1 != fid:
+            if self._db.add_chunk_hashes(fid=fid, hashes=[(serial, block_size, hash)]):
+                Util.debug(f"{os.path.basename(path)}-[{serial:02d}]", fmt_indent=12)
+            else:
+                self._record_file_with_error(path)
+
+        chunk_hashes.append({"serial": serial, "block_size": block_size, "hash": hash})
+
+    def _record_file_with_error(self, path: str):
+        self._stat.update_error(path)
+
+        Util.debug(f"!!! {os.path.basename(path)}", fmt_indent=3, fmt_time=True)
+
+    def _flush_log(self) -> str:
+        log = f"sweeper.{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log", log)
         os.makedirs(os.path.dirname(log), exist_ok=True)
 
         with open(log, "w", encoding="utf-8") as f:
             yaml.dump(
                 {
-                    "failed": self._failed,
-                    "zero": self._zero,
-                    "stat": {
-                        "files": self._deleted,
-                        "space": Util.bytes_readable(self._shrink_size),
-                    },
-                    "copy": self._copy,
+                    "stat": f"{Util.bytes_readable(self._stat.shrink_bytes)} from {self._stat.deleted} files, total hash {Util.bytes_readable(self._stat.hash_bytes)}",
+                    "error": self._stat.files_error,
+                    "empty": self._stat.files_empty,
+                    "duplicate": self._stat.files_duplicate,
                 },
                 f,
                 allow_unicode=True,
@@ -78,118 +195,6 @@ class Client:
             )
 
         return log
-
-    def _scan_dir(self, tcp_socket, top: str):
-        for root, _, files in os.walk(top):
-            print(f"{datetime.now().strftime('%H:%M:%S')} {root}")
-
-            for file in files:
-                path = os.path.join(root, file)
-                fstat = os.stat(path, follow_symlinks=False)
-                if stat.S_ISREG(fstat.st_mode) and "@eaDir" not in root:
-                    if 0 == fstat.st_size:
-                        self._zero.append(path)
-                        continue
-
-                    self._scaned += 1
-
-                    details = self._details_from_db(path, fstat.st_size, fstat.st_mtime)
-                    if not details:
-                        self._record_failed(path)
-                        continue
-
-                    fid, chunk_hashes = details
-                    blocks = self._ch.blocks(path)
-                    filter_id = hashlib.md5(path.encode("utf-8")).hexdigest()
-                    while True:
-                        Util.send_json(
-                            tcp_socket,
-                            {
-                                "command": CMD.FILTER,
-                                "filter_id": filter_id,
-                                "path": path,
-                                "local": self._local,
-                                "size": fstat.st_size,
-                                "chunk_hashes": chunk_hashes,
-                            },
-                        )
-                        echo = Util.recv_json(tcp_socket)
-                        assert (
-                            echo
-                            and filter_id == echo["filter_id"]
-                            and CMD.ECHO_FILTER == echo["command"]
-                        )
-
-                        if echo["matched_file"] is None:
-                            # print(f"{' ' * 3}+++ {file}")
-                            break
-
-                        serial = chunk_hashes[-1]["serial"]
-                        assert serial <= blocks
-
-                        if serial == blocks:
-                            self._deleted += 1
-                            self._shrink_size += fstat.st_size
-
-                            server = f"{echo['server_id']}-{echo['matched_file']}"
-                            if server not in self._copy:
-                                self._copy[server] = [
-                                    {
-                                        "size": f"{fstat.st_size} - {Util.bytes_readable(fstat.st_size)}"
-                                    }
-                                ]
-                            self._copy[server].append(path)
-
-                            print(f"{' ' * 3}--- {file}")
-                            break
-
-                        serial += 1
-                        hash, block_size = self._ch.block_hash(path=path, serial=serial)
-                        if not self._db.add_chunk_hashes(
-                            fid=fid, hashes=[(serial, block_size, hash)]
-                        ):
-                            self._record_failed(path)
-                            break
-
-                        chunk_hashes = [
-                            {"serial": serial, "block_size": block_size, "hash": hash}
-                        ]
-
-                    if (self._max_scan > 0 and self._scaned >= self._max_scan) or (
-                        self._max_delete > 0 and self._deleted >= self._max_delete
-                    ):
-                        return
-
-            print("")
-
-    def _details_from_db(
-        self, path: str, size: int, mtime: float
-    ) -> Optional[Tuple[int, List]]:
-        fid, chunk_hashes = self._db.get_file_details(path=path, size=size, mtime=mtime)
-
-        if -1 == fid:
-            fid = self._db.add_file(
-                path=os.path.dirname(path),
-                name=os.path.basename(path),
-                size=size,
-                mtime=mtime,
-            )
-            if -1 == fid:
-                return None
-
-        if not chunk_hashes:
-            hash, block_size = self._ch.block_hash(path=path, serial=1)
-            if not self._db.add_chunk_hashes(fid=fid, hashes=[(1, block_size, hash)]):
-                return None
-
-            chunk_hashes = [{"serial": 1, "block_size": block_size, "hash": hash}]
-
-        return fid, chunk_hashes
-
-    def _record_failed(self, path: str):
-        self._failed.append(path)
-
-        print(f"{' ' * 3}!!! {os.path.basename(path)}")
 
 
 def check_max(value):
@@ -243,4 +248,6 @@ if "__main__" == __name__:
     except KeyboardInterrupt:
         pass
     finally:
-        print(client.stop())
+        log = client.stop()
+        print("")
+        Util.debug(f"log: {log}", fmt_time=True)

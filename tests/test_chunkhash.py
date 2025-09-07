@@ -39,7 +39,7 @@ class TestChunkHash(unittest.TestCase):
             blocks = (size - HEAD_SIZE) // BLOCK_SIZE + 1
             if (size - HEAD_SIZE) % BLOCK_SIZE > 0:
                 blocks += 1
-        self.assertEqual(blocks, self._ch.blocks(file_path))
+        self.assertEqual(blocks, self._ch.blocks(size))
         print(f"{os.path.basename(file_path)}: {size:09d} {blocks:02d}")
 
         for i in range(blocks):
@@ -51,9 +51,7 @@ class TestChunkHash(unittest.TestCase):
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
             self.assertIn(hash, result.stdout)
-            self.assertEqual(
-                blk_size, self._ch.block_size(path=file_path, serial=i + 1)
-            )
+            self.assertEqual(blk_size, self._ch.block_size(size, i + 1))
             print(f"{' ' * 4}{(i + 1):02d}: {hash} - {blk_size}")
 
     def test_chunk_hash(self):

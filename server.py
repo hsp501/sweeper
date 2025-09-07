@@ -1,41 +1,18 @@
 import argparse
 import os
 import socket
-import stat
-from typing import List
+from typing import Dict, List
 
-import yaml
-
-from src import CMD, ChunkHash, HashDB, Util
+from src import Command, Key, Sweeper, Util
 
 
-class Server:
-    def __init__(self, config_file: str):
-        self._size_group = {}
-
-        working_dir = os.path.dirname(os.path.abspath(__file__))
-
-        with open(os.path.join(working_dir, config_file), "r") as f:
-            config = yaml.safe_load(f)
-
-            self._dirs = []
-            for dir in config["dirs"]:
-                self._dirs.append(os.path.abspath(dir))
-            self._server_id = config["id"]
-            bind = config["bind"].split(":")
-            self._host = bind[0]
-            self._port = int(bind[1]) if (len(bind) == 2) else 5555
-
-        self._ch = ChunkHash()
-        self._db = HashDB(os.path.join(working_dir, config["hash_db"]))
-        self._context = self._socket = None
+class Server(Sweeper):
+    def __init__(self, yaml_file: str):
+        super().__init__(False, yaml_file)
 
     def start(self):
-        print("directory list:")
-        for top in self._dirs:
-            print(f"{' ' * 3} {top}")
-            self._scan(top)
-        print("")
+        self._stat.group_by_size(self._dirs)
+        self._show_sweep_dirs()
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self._host, self._port))
@@ -44,122 +21,110 @@ class Server:
             while True:
                 self._session = {}
                 csocket, caddress = s.accept()
-                print(f"client connected: {caddress}")
-                self._handle_client(csocket)
+                Util.debug(f"client connected: {caddress}", fmt_time=True)
+                self._handle_request(csocket)
 
-    def stop(self):
-        if self._socket:
-            self._socket.close()
-
-        if self._context:
-            self._context.term()
-
-    def _scan(self, top: str):
-        for root, _, files in os.walk(top):
-            for file in files:
-                path = os.path.join(root, file)
-                fstat = os.stat(path, follow_symlinks=False)
-                if (
-                    stat.S_ISREG(fstat.st_mode)
-                    and fstat.st_size > 0
-                    and "@eaDir" not in root
-                ):
-                    if fstat.st_size not in self._size_group:
-                        self._size_group[fstat.st_size] = []
-                    self._size_group[fstat.st_size].append(path)
-
-    def _handle_client(self, csocket: socket.socket):
+    def _handle_request(self, _socket: socket.socket):
         while True:
-            request = Util.recv_json(csocket)
+            request = self._recv_json(_socket)
             if not request:
                 break
 
-            if request["command"] != CMD.FILTER:
-                csocket.close()
+            if request[Key.COMMAND] == Command.CHECK_SIZE:
+                self._handle_req_size(_socket, request)
+            elif request[Key.COMMAND] == Command.CHECK_HASH:
+                self._handle_req_hash(_socket, request)
+            else:
+                _socket.close()
                 break
 
-            path = self._filter(
-                filter_id=request["filter_id"],
-                client_path=request["path"],
-                local=request["local"],
-                size=request["size"],
-                client_hash=request["chunk_hashes"],
-            )
+    def _handle_req_size(self, _socket: socket.socket, request: Dict):
+        result = 0
 
-            Util.send_json(
-                csocket,
-                {
-                    "command": CMD.ECHO_FILTER,
-                    "server_id": self._server_id,
-                    "filter_id": request["filter_id"],
-                    "matched_file": path,
-                },
-            )
+        size = request[Key.SIZE]
+        files = self._stat.size_group.get(size, None)
+        if files:
+            result = len(files)
+            if request[Key.LOCAL_MODE] and request[Key.PATH] in files:
+                result -= 1
 
-    def _filter(
+        self._send_json(
+            _socket,
+            self._echo_size(
+                request_id=request[Key.REQUEST_ID],
+                size=size,
+                files=result,
+            ),
+        )
+
+    def _handle_req_hash(self, _socket: socket.socket, request: Dict):
+        path = self._filter_by_hash(
+            request_id=request[Key.REQUEST_ID],
+            local_mode=request[Key.LOCAL_MODE],
+            client_path=request[Key.PATH],
+            size=request[Key.SIZE],
+            client_hash=request[Key.HASH],
+        )
+
+        self._send_json(
+            _socket,
+            self._echo_hash(
+                request_id=request[Key.REQUEST_ID],
+                path=path,
+            ),
+        )
+
+    def _filter_by_hash(
         self,
         *,
-        filter_id: str,
+        request_id: str,
+        local_mode: bool,
         client_path: str,
-        local: bool,
         size: int,
         client_hash: List,
     ) -> str:
-        if filter_id not in self._session:
-            self._session[filter_id] = None
-            if size in self._size_group:
-                self._session[filter_id] = sorted(self._size_group[size])
+        if request_id not in self._session:
+            self._session[request_id] = None
+            if size in self._stat.size_group:
+                self._session[request_id] = sorted(self._stat.size_group[size])
 
-        while self._session[filter_id]:
-            path = self._session[filter_id][0]
-            if local and path == client_path:
-                self._session[filter_id].pop(0)
+        while self._session[request_id]:
+            path = self._session[request_id][0]
+            if local_mode and path == client_path:
+                self._session[request_id].pop(0)
                 continue
 
-            if not self._check_hash(path, client_hash):
-                self._session[filter_id].pop(0)
+            if not self._check_hash(path, client_path, client_hash):
+                self._session[request_id].pop(0)
             else:
                 return path
 
         return None
 
-    def _check_hash(self, path: str, client_hash: List) -> bool:
-        fs = os.stat(path, follow_symlinks=False)
-        fid, server_hash = self._db.get_file_details(
-            path=path, size=fs.st_size, mtime=fs.st_mtime
-        )
-
-        if -1 == fid:
-            fid = self._db.add_file(
-                path=os.path.dirname(path),
-                name=os.path.basename(path),
-                size=fs.st_size,
-                mtime=fs.st_mtime,
+    def _check_hash(self, path: str, client_path: str, client_hash: List) -> bool:
+        if not Util.is_serial_hashes(client_hash):
+            Util.debug(
+                f"bad client chunk hashes: {os.path.basename(path)} <-> {os.path.basename(client_path)}",
+                fmt_indent=3,
+                fmt_time=True,
             )
-            assert -1 != fid
-            print(f"{' ' * 3}{os.path.basename(path)}")
+            Util.debug("--- client hashes", fmt_indent=12)
+            self._show_chunk_hash(client_hash, fmt_indent=16)
+            return False
 
-        if not server_hash:
-            server_hash = []
+        fstat = os.stat(path, follow_symlinks=False)
+        fid, server_hash = self._file_details(
+            path=path,
+            size=fstat.st_size,
+            mtime=fstat.st_mtime,
+            max_serial=len(client_hash),
+        )
+        if not server_hash or len(server_hash) < len(client_hash):
+            return False
 
-        for chash in client_hash:
-            serial = chash["serial"]
-
-            if serial <= len(server_hash) and server_hash[serial - 1] != chash:
+        for i in range(len(client_hash)):
+            if server_hash[i] != client_hash[i]:
                 return False
-            elif serial > len(server_hash):
-                hash, blk_size = self._ch.block_hash(path=path, serial=serial)
-                assert self._db.add_chunk_hashes(
-                    fid=fid, hashes=[(serial, blk_size, hash)]
-                )
-                print(f"{' ' * 3}{os.path.basename(path)} - [{serial:03d}]")
-
-                server_hash.append(
-                    {"serial": serial, "block_size": blk_size, "hash": hash}
-                )
-
-                if server_hash[-1] != chash:
-                    return False
 
         return True
 

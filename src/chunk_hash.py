@@ -1,5 +1,4 @@
 import hashlib
-import os
 from typing import Tuple
 
 HEAD_SIZE = 128 * 1024
@@ -8,21 +7,26 @@ READ_SIZE = 256 * 1024
 
 
 class ChunkHash:
-    def blocks(self, path: str) -> int:
-        fs = os.stat(path)
+    def blocks(self, size: int) -> int:
+        assert isinstance(size, int) and size > 0
 
         _blocks = 1
-        if fs.st_size > HEAD_SIZE:
-            tail_size = (fs.st_size - HEAD_SIZE) % BLOCK_SIZE
+        if size > HEAD_SIZE:
+            tail_size = (size - HEAD_SIZE) % BLOCK_SIZE
             if tail_size > 0:
                 _blocks += 1
 
-            _blocks += (fs.st_size - HEAD_SIZE - tail_size) // BLOCK_SIZE
+            _blocks += (size - HEAD_SIZE - tail_size) // BLOCK_SIZE
 
         return _blocks
 
-    def block_size(self, *, path: str, serial: int) -> int:
-        size = os.stat(path).st_size
+    def block_size(self, size: int, serial: int) -> int:
+        assert (
+            isinstance(size, int)
+            and isinstance(serial, int)
+            and size > 0
+            and serial >= 1
+        )
 
         if 1 == serial:
             blk_size = HEAD_SIZE if size >= HEAD_SIZE else size
