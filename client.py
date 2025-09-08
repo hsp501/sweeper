@@ -12,9 +12,16 @@ from src import Command, Key, Sweeper, Util
 
 class Client(Sweeper):
     def __init__(
-        self, yaml_file: str, max_delete: int, max_scan: int, local_mode: bool
+        self,
+        yaml_file: str,
+        max_delete: int,
+        max_scan: int,
+        local_mode: bool,
+        debug: bool,
     ):
-        super().__init__(True, yaml_file, max_delete=max_delete, max_scan=max_scan)
+        super().__init__(
+            True, yaml_file, max_delete=max_delete, max_scan=max_scan, debug=debug
+        )
 
         self._local_mode = local_mode
 
@@ -82,10 +89,7 @@ class Client(Sweeper):
             and request_id == echo_message.get(Key.REQUEST_ID, None)
             and fstat.st_size == echo_message.get(Key.SIZE, -1)
         ):
-            info = "unexpected echo message"
-            if echo_message:
-                info += f" [{str(echo_message)}]"
-            Util.debug(info, fmt_indent=3, fmt_time=True)
+            Util.debug("unexpected echo message", fmt_indent=3, fmt_time=True)
             return False
 
         return echo_message[Key.RESULT] > 0
@@ -237,13 +241,20 @@ def parse_args():
         help="client & server running on local mode, don't compare the same path file",
     )
 
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="debug mode, show more detail logs",
+    )
+
     return parser.parse_args()
 
 
 if "__main__" == __name__:
     try:
         args = parse_args()
-        client = Client(args.yaml, args.delete, args.scan, args.local)
+        client = Client(args.yaml, args.delete, args.scan, args.local, args.debug)
         client.start()
     except KeyboardInterrupt:
         pass

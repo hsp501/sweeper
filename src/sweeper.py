@@ -2,7 +2,6 @@ import json
 import os
 import socket
 import struct
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
@@ -18,10 +17,12 @@ class Sweeper:
         *,
         max_delete: int = 0,
         max_scan: int = 0,
+        debug: bool = False,
     ) -> None:
         self._client_mode = client_mode
         self._socket: socket.socket = None
         self._stat = ShrinkStat(max_delete=max_delete, max_scan=max_scan)
+        self._debug = debug
 
         pwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(pwd, yaml_file), "r") as f:
@@ -52,24 +53,20 @@ class Sweeper:
         except Exception:
             pass
 
-    def _send_json(
-        self, _socket: socket.socket, data: Dict, *, debug: bool = False
-    ) -> bool:
+    def _send_json(self, _socket: socket.socket, message: Dict) -> bool:
         try:
-            raw = json.dumps(data).encode()
+            raw = json.dumps(message).encode()
             _socket.sendall(struct.pack("!I", len(raw)) + raw)
 
-            if debug:
-                Util.debug(f"{self._id} --->>>:", fmt_indent=3, fmt_time=True)
-                for k, v in data.items():
-                    Util.debug(f"{k}: {v}", fmt_indent=12)
+            if self._debug:
+                self._show_socket_data(message, True)
 
             return True
         except Exception as exp:
             Util.debug(f"_send_json() -> {str(exp)}", fmt_time=True)
             return False
 
-    def _recv_json(self, _socket: socket.socket, *, debug: bool = False) -> Dict:
+    def _recv_json(self, _socket: socket.socket) -> Dict:
         raw_len = _socket.recv(4)
         if not raw_len:
             return None
@@ -83,10 +80,8 @@ class Sweeper:
             data += chunk
 
         message = json.loads(data.decode())
-        if debug:
-            Util.debug(f"{self._id} <<<---:", fmt_indent=3, fmt_time=True)
-            for k, v in message.items():
-                Util.debug(f"{k}: {v}", fmt_indent=12)
+        if self._debug:
+            self._show_socket_data(message, False)
 
         return message
 
@@ -97,18 +92,18 @@ class Sweeper:
             Util.debug(f"{(i + 1):02d}: {top}", fmt_indent=3)
         print("")
 
-    def _debug_socket_data(self, data: Dict, send: bool):
-        if Key.REQUEST_ID in data and Key.HASH in data:
-            info = (
-                "socket-"
-                + ("send" if send else "recv")
-                + " "
-                + datetime.now().strftime("%H:%M:%S")
-            )
-            info += f": {data[Key.REQUEST_ID]}"
-            for hash in data[Key.HASH]:
-                info += f"\n{' ' * 3}{hash['serial']}-{hash['hash']}"
-            print(info)
+    def _show_socket_data(self, data: Dict, send: bool):
+        Util.debug(
+            f"{self._id} {'--->>>' if send else '<<<---'}:", fmt_indent=3, fmt_time=True
+        )
+        for k, v in data.items():
+            if k == Key.HASH:
+                Util.debug(f"{k}:", fmt_indent=12)
+                for hash in v:
+                    hash = str(hash)[1:-1].replace("'", "")
+                    Util.debug(hash, fmt_indent=12)
+            else:
+                Util.debug(f"{k}: {v}", fmt_indent=12)
 
     def _show_chunk_hash(
         self, chunk_hashes: List, *, fmt_indent: int = 0, fmt_time: bool = False

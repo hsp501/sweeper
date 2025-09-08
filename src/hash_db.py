@@ -2,6 +2,8 @@ import os
 import sqlite3
 from typing import Dict, List, Optional, Tuple
 
+from src import Util
+
 
 class HashDB:
     def __init__(self, db_path: str):
@@ -55,8 +57,9 @@ class HashDB:
 
             return cursor.lastrowid
         except Exception as exp:
-            print(
-                f"add_file(path={path}, name={name}, size={size}, mtime: {mtime}) -> {str(exp)}"
+            Util.debug(
+                f"add_file(path={path}, name={name}, size={size}, mtime: {mtime}) -> {str(exp)}",
+                fmt_time=True,
             )
             self.conn.rollback()
 
@@ -78,8 +81,9 @@ class HashDB:
 
             return True
         except Exception as exp:
-            print(
-                f"add_chunk_hashes(fid={fid}, hashes-{len(hashes)}={hashes[0]}) -> {str(exp)}"
+            Util.debug(
+                f"add_chunk_hashes(fid={fid}, hashes-{len(hashes)}={hashes[0]}) -> {str(exp)}",
+                fmt_time=True,
             )
             self.conn.rollback()
 
@@ -128,7 +132,7 @@ class HashDB:
 
             return True
         except Exception as exp:
-            print(f"update_file(fid={fid}) -> {str(exp)}")
+            Util.debug(f"update_file(fid={fid}) -> {str(exp)}", fmt_time=True)
             self.conn.rollback()
 
             return False
@@ -186,7 +190,7 @@ class HashDB:
 
             return True
         except Exception as exp:
-            print(f"delete_chunk_hashes(fid={fid}) -> {str(exp)}")
+            Util.debug(f"delete_chunk_hashes(fid={fid}) -> {str(exp)}", fmt_time=True)
             self.conn.rollback()
 
             return False
@@ -200,7 +204,7 @@ class HashDB:
 
             return True
         except Exception as exp:
-            print(f"delete_file(fid={fid}) -> {str(exp)}")
+            Util.debug(f"delete_file(fid={fid}) -> {str(exp)}", fmt_time=True)
             self.conn.rollback()
 
             return False

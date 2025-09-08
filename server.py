@@ -7,8 +7,8 @@ from src import Command, Key, Sweeper, Util
 
 
 class Server(Sweeper):
-    def __init__(self, yaml_file: str):
-        super().__init__(False, yaml_file)
+    def __init__(self, yaml_file: str, debug: bool):
+        super().__init__(False, yaml_file, debug=debug)
 
     def start(self):
         self._stat.group_by_size(self._dirs)
@@ -140,13 +140,20 @@ def parse_args():
         help="the yaml config of directory list from where to compare file & release space",
     )
 
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="debug mode, show more detail logs",
+    )
+
     return parser.parse_args()
 
 
 if "__main__" == __name__:
     try:
         args = parse_args()
-        server = Server(args.yaml)
+        server = Server(args.yaml, args.debug)
         server.start()
     except KeyboardInterrupt:
         pass

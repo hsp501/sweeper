@@ -80,13 +80,13 @@ class TestFakeFiles(unittest.TestCase):
         f_s1f1, bytes_blocks = self._concat(
             heads=[idx_head], bodys=[idx_b1, idx_s1f1b2], tails=[idx_tail]
         )
-        self._create_file(os.path.join(sub1, f_s1f1), bytes_blocks)
+        self._create_file(os.path.join(sub1, f"sub1-{f_s1f1}"), bytes_blocks)
 
         f_s1f2, bytes_blocks = self._concat(
             heads=[idx_head], bodys=[idx_b1, idx_s1f2b2], tails=[idx_tail]
         )
-        self._create_file(os.path.join(sub1, f_s1f2), bytes_blocks)
-        self._create_file(os.path.join(sub2, f_s1f2), bytes_blocks)
+        self._create_file(os.path.join(sub1, f"sub1-{f_s1f2}"), bytes_blocks)
+        self._create_file(os.path.join(sub2, f"sub2-{f_s1f2}"), bytes_blocks)
 
 
 if __name__ == "__main__":
