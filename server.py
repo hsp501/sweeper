@@ -94,14 +94,16 @@ class Server(Sweeper):
                 self._session[request_id].pop(0)
                 continue
 
-            if not self._check_hash(path, client_path, client_hash):
+            if not self._check_hash(request_id, path, client_path, client_hash):
                 self._session[request_id].pop(0)
             else:
                 return path
 
         return None
 
-    def _check_hash(self, path: str, client_path: str, client_hash: List) -> bool:
+    def _check_hash(
+        self, request_id, path: str, client_path: str, client_hash: List
+    ) -> bool:
         if not Util.is_serial_hashes(client_hash):
             Util.debug(
                 f"bad client chunk hashes: {os.path.basename(path)} <-> {os.path.basename(client_path)}",
@@ -117,16 +119,11 @@ class Server(Sweeper):
             path=path,
             size=fstat.st_size,
             mtime=fstat.st_mtime,
+            request_id=request_id,
             ref_hashes=client_hash,
         )
-        if not server_hash or len(server_hash) < len(client_hash):
-            return False
 
-        for i in range(len(client_hash)):
-            if server_hash[i] != client_hash[i]:
-                return False
-
-        return True
+        return server_hash and self._equal_chunk_hashes(server_hash, client_hash)
 
 
 def parse_args():

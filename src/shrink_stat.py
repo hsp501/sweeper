@@ -13,13 +13,21 @@ class ShrinkStat:
         self._files_duplicate = {}
 
         self._max_delete, self._max_scan = max_delete, max_scan
-        self._deleted, self._scaned, self._shrink_bytes, self._hash_bytes = [0] * 4
 
-    def group_by_size(self, dirs: List) -> Dict[int, List[str]]:
+        (
+            self._deleted,
+            self._scaned,
+            self._shrink_bytes,
+            self._hash_bytes,
+            self._important_files,
+        ) = [0] * 5
+
+    def group_by_size(self, dirs: List):
         # key:      file size (int)
         # value:    file path list
         size_group: Dict[int, List[str]] = {}
 
+        self._important_files = 0
         for top in dirs:
             for root, _, files in os.walk(top):
                 for file in files:
@@ -29,6 +37,9 @@ class ShrinkStat:
                         if fstat.st_size not in size_group:
                             size_group[fstat.st_size] = []
                         size_group[fstat.st_size].append(path)
+                        self._important_files += 1
+                    elif 0 == fstat.st_size:
+                        self.update_empty(path)
 
         self._size_group = size_group
 
@@ -100,10 +111,10 @@ class ShrinkStat:
     def shrink_bytes(self):
         return self._shrink_bytes
 
-    def on_scan(self):
-        self._scaned += 1
+    def on_scan(self, scaned: int = 1):
+        self._scaned += scaned
 
-    def reach_target(self) -> bool:
+    def reach_limit(self) -> bool:
         return (self._max_scan > 0 and self._scaned >= self._max_scan) or (
             self._max_delete > 0 and self._deleted >= self._max_delete
         )
@@ -124,3 +135,11 @@ class ShrinkStat:
                 return True
 
         return False
+
+    @property
+    def files_to_scan(self) -> int:
+        return self._important_files
+
+    @property
+    def scaned(self) -> int:
+        return self._scaned

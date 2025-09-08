@@ -26,13 +26,34 @@ class Client(Sweeper):
         self._local_mode = local_mode
 
     def start(self):
+        self._stat.group_by_size(self._dirs)
         self._show_sweep_dirs()
 
         self._socket: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._socket.connect((self._host, self._port))
 
-        for top in self._dirs:
-            if self._shrink(self._socket, top):
+        # 优先处理大文件
+        for size in sorted(self._stat.size_group.keys(), reverse=True):
+            group_files = self._stat.size_group[size]
+            files = len(group_files)
+
+            if not self._local_mode:
+                request_id = f"{self._id}-size inquiry-[{size}]"
+                if not self._compare_size(
+                    self._socket, False, request_id, request_id, size
+                ):
+                    self._stat.on_scan(files)
+                    continue
+
+            reach_limit, flg_hashed = self._shrink(self._socket, group_files)
+
+            if flg_hashed:
+                Util.debug(
+                    f"size group shrinked{[size]} with {files} files, total: {self._stat.files_to_scan}, scaned: {self._stat.scaned}, left: {self._stat.files_to_scan - self._stat.scaned}\n",
+                    fmt_time=True,
+                )
+
+            if reach_limit:
                 break
 
     def stop(self) -> Any:
@@ -40,46 +61,54 @@ class Client(Sweeper):
 
         return self._flush_log()
 
-    def _shrink(self, _socket: socket.socket, top: str) -> bool:
-        for root, _, files in os.walk(top):
-            Util.debug(root, fmt_time=True)
+    def _shrink(
+        self, _socket: socket.socket, group_files: List[str]
+    ) -> Tuple[bool, bool]:
+        flag_hashed = False
 
-            for file in files:
-                if self._stat.reach_target():
-                    return True
+        for path in group_files:
+            if self._stat.reach_limit():
+                return True, flag_hashed
 
-                path = os.path.join(root, file)
-                fstat = os.stat(path, follow_symlinks=False)
-                if not Util.important_file(fstat, root, file):
-                    if 0 == fstat.st_size:
-                        self._stat.update_empty(path)
-                    continue
+            self._stat.on_scan()
 
-                request_id = f"{self._id}-{path}"
-                request_id = hashlib.md5(request_id.encode("utf-8")).hexdigest()
+            if self._local_mode and self._stat.skip_scan(path):
+                Util.debug(
+                    f"{os.path.basename(path)}{'~' * 5}SKIP",
+                    fmt_indent=3,
+                    fmt_time=True,
+                )
+                continue
 
-                if self._client_mode and self._stat.skip_scan(path):
-                    Util.debug(f"{file}{'~' * 5}SKIP", fmt_indent=3, fmt_time=True)
-                    continue
+            fstat = os.stat(path, follow_symlinks=False)
+            request_id = f"{self._id}-{path}"
+            request_id = hashlib.md5(request_id.encode("utf-8")).hexdigest()
 
-                self._stat.on_scan()
-                if not self._compare_size(_socket, request_id, path, fstat):
-                    continue
+            if not self._compare_size(
+                _socket, self._local_mode, request_id, path, fstat.st_size
+            ):
+                continue
 
-                self._compare_hash(_socket, request_id, path, fstat)
+            self._compare_hash(_socket, request_id, path, fstat)
+            flag_hashed = True
 
-        return False
+        return False, flag_hashed
 
     def _compare_size(
-        self, _socket: socket.socket, request_id, path: str, fstat: os.stat_result
+        self,
+        _socket: socket.socket,
+        local_mode,
+        request_id,
+        path: str,
+        size: int,
     ) -> bool:
         if not self._send_json(
             _socket,
             self._req_size(
                 request_id=request_id,
-                local_mode=self._local_mode,
+                local_mode=local_mode,
                 path=path,
-                size=fstat.st_size,
+                size=size,
             ),
         ):
             return False
@@ -90,7 +119,7 @@ class Client(Sweeper):
             and Key.RESULT in echo_message
             and Command.ECHO_CHECK_SIZE == echo_message.get(Key.COMMAND, None)
             and request_id == echo_message.get(Key.REQUEST_ID, None)
-            and fstat.st_size == echo_message.get(Key.SIZE, -1)
+            and size == echo_message.get(Key.SIZE, -1)
         ):
             Util.debug("unexpected echo message", fmt_indent=3, fmt_time=True)
             return False
@@ -101,7 +130,7 @@ class Client(Sweeper):
         self, _socket: socket.socket, request_id, path: str, fstat: os.stat_result
     ):
         fid, chunk_hashes = self._file_details(
-            path=path, size=fstat.st_size, mtime=fstat.st_mtime
+            path=path, size=fstat.st_size, mtime=fstat.st_mtime, request_id=request_id
         )
         if not chunk_hashes:
             self._record_file_with_error(path)
@@ -190,6 +219,7 @@ class Client(Sweeper):
         with open(log, "w", encoding="utf-8") as f:
             yaml.dump(
                 {
+                    "total": f"{self._stat.files_to_scan} files",
                     "stat": f"{Util.bytes_readable(self._stat.shrink_bytes)} from {self._stat.deleted} files, total hash {Util.bytes_readable(self._stat.hash_bytes)}",
                     "error": self._stat.files_error,
                     "empty": self._stat.files_empty,

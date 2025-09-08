@@ -116,7 +116,7 @@ class Sweeper:
             )
 
     def _file_details(
-        self, *, path: str, size: int, mtime: float, ref_hashes: List = None
+        self, *, path: str, size: int, mtime: float, request_id, ref_hashes: List = None
     ) -> Optional[Tuple[int, List]]:
         fid, chunk_hashes = self._db.get_file_details(path=path, size=size, mtime=mtime)
 
@@ -128,7 +128,11 @@ class Sweeper:
                 mtime=mtime,
             )
             if -1 != fid:
-                Util.debug(f"{os.path.basename(path)}", fmt_indent=3, fmt_time=True)
+                Util.debug(
+                    f"{os.path.basename(path)}-{request_id}",
+                    fmt_indent=3,
+                    fmt_time=True,
+                )
 
         if not Util.is_serial_hashes(chunk_hashes):
             chunk_hashes = None
@@ -137,6 +141,11 @@ class Sweeper:
 
         blocks = self._ch.blocks(size)
         max_serial = 1 if not ref_hashes else min(len(ref_hashes), blocks)
+
+        if chunk_hashes and ref_hashes:
+            serial = min(len(chunk_hashes), len(ref_hashes))
+            if not self._equal_chunk_hashes(chunk_hashes[:serial], ref_hashes[:serial]):
+                return fid, chunk_hashes
 
         if not chunk_hashes or len(chunk_hashes) < max_serial:
             min_serial = (len(chunk_hashes) + 1) if chunk_hashes else 1
@@ -201,3 +210,16 @@ class Sweeper:
             Key.REQUEST_ID: request_id,
             Key.RESULT: path,
         }
+
+    def _equal_chunk_hashes(self, hash1: List, hash2: List) -> bool:
+        if hash1 and hash2:
+            if len(hash1) != len(hash2):
+                return False
+
+            for i in range(len(hash1)):
+                if hash1[i] != hash2[i]:
+                    return False
+
+            return True
+
+        return hash1 == hash2

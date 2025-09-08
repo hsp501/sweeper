@@ -93,11 +93,11 @@ class TestFakeFiles(unittest.TestCase):
 
         # sub1 h1-b234-t0 h1-b134-t1 h1-b234-t1
         f_s1, bytes_blocks = self._concat(heads=[1], bodys=[2, 3, 4], tails=[0])
-        self._create_file(os.path.join(sub1, f"x.sub1-{f_s1}"), bytes_blocks)
+        self._create_file(os.path.join(sub1, f"xsub1-{f_s1}"), bytes_blocks)
         f_s1, bytes_blocks = self._concat(heads=[1], bodys=[1, 3, 4], tails=[1])
-        self._create_file(os.path.join(sub1, f"y.sub1-{f_s1}"), bytes_blocks)
+        self._create_file(os.path.join(sub1, f"ysub1-{f_s1}"), bytes_blocks)
         f_s1, bytes_blocks = self._concat(heads=[1], bodys=[2, 3, 4], tails=[1])
-        self._create_file(os.path.join(sub1, f"z.sub1-{f_s1}"), bytes_blocks)
+        self._create_file(os.path.join(sub1, f"zsub1-{f_s1}"), bytes_blocks)
 
 
 if __name__ == "__main__":
