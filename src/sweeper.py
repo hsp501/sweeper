@@ -116,7 +116,7 @@ class Sweeper:
             )
 
     def _file_details(
-        self, *, path: str, size: int, mtime: float, max_serial: int
+        self, *, path: str, size: int, mtime: float, ref_hashes: List = None
     ) -> Optional[Tuple[int, List]]:
         fid, chunk_hashes = self._db.get_file_details(path=path, size=size, mtime=mtime)
 
@@ -136,8 +136,7 @@ class Sweeper:
                 self._db.delete_chunk_hashes(fid)
 
         blocks = self._ch.blocks(size)
-        if max_serial < 0 or max_serial > blocks:
-            max_serial = blocks
+        max_serial = 1 if not ref_hashes else min(len(ref_hashes), blocks)
 
         if not chunk_hashes or len(chunk_hashes) < max_serial:
             min_serial = (len(chunk_hashes) + 1) if chunk_hashes else 1
@@ -156,6 +155,10 @@ class Sweeper:
                 if chunk_hashes is None:
                     chunk_hashes = []
                 chunk_hashes.append(chunk)
+
+                if ref_hashes and chunk != ref_hashes[serial - 1]:
+                    # differences found, stop further MD5 hash
+                    break
 
         return fid, chunk_hashes
 

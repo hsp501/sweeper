@@ -117,7 +117,7 @@ class Server(Sweeper):
             path=path,
             size=fstat.st_size,
             mtime=fstat.st_mtime,
-            max_serial=len(client_hash),
+            ref_hashes=client_hash,
         )
         if not server_hash or len(server_hash) < len(client_hash):
             return False

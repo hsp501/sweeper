@@ -20,10 +20,13 @@ class TestFakeFiles(unittest.TestCase):
         self._bodys = []
         self._tails = []
 
-        for _ in range(self._blocks):
+        for i in range(self._blocks):
             self._heads.append(os.urandom(HEAD_SIZE))
             self._bodys.append(os.urandom(BLOCK_SIZE))
-            self._tails.append(os.urandom(random.randint(1, BLOCK_SIZE - 1)))
+
+            if 0 == (i % 2):
+                size = random.randint(1, BLOCK_SIZE - 1)
+            self._tails.append(os.urandom(size))
 
     def tearDown(self):
         pass
@@ -87,6 +90,14 @@ class TestFakeFiles(unittest.TestCase):
         )
         self._create_file(os.path.join(sub1, f"sub1-{f_s1f2}"), bytes_blocks)
         self._create_file(os.path.join(sub2, f"sub2-{f_s1f2}"), bytes_blocks)
+
+        # sub1 h1-b234-t0 h1-b134-t1 h1-b234-t1
+        f_s1, bytes_blocks = self._concat(heads=[1], bodys=[2, 3, 4], tails=[0])
+        self._create_file(os.path.join(sub1, f"x.sub1-{f_s1}"), bytes_blocks)
+        f_s1, bytes_blocks = self._concat(heads=[1], bodys=[1, 3, 4], tails=[1])
+        self._create_file(os.path.join(sub1, f"y.sub1-{f_s1}"), bytes_blocks)
+        f_s1, bytes_blocks = self._concat(heads=[1], bodys=[2, 3, 4], tails=[1])
+        self._create_file(os.path.join(sub1, f"z.sub1-{f_s1}"), bytes_blocks)
 
 
 if __name__ == "__main__":

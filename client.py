@@ -101,7 +101,7 @@ class Client(Sweeper):
         self, _socket: socket.socket, request_id, path: str, fstat: os.stat_result
     ):
         fid, chunk_hashes = self._file_details(
-            path=path, size=fstat.st_size, mtime=fstat.st_mtime, max_serial=1
+            path=path, size=fstat.st_size, mtime=fstat.st_mtime
         )
         if not chunk_hashes:
             self._record_file_with_error(path)
