@@ -32,25 +32,28 @@ class Client(Sweeper):
         self._socket.connect((self._host, self._port))
 
         for top in self._dirs:
-            self._shrink(self._socket, top)
+            if self._shrink(self._socket, top):
+                break
 
     def stop(self) -> Any:
         super().stop()
 
         return self._flush_log()
 
-    def _shrink(self, _socket: socket.socket, top: str):
+    def _shrink(self, _socket: socket.socket, top: str) -> bool:
         for root, _, files in os.walk(top):
             Util.debug(root, fmt_time=True)
 
             for file in files:
+                if self._stat.reach_target():
+                    return True
+
                 path = os.path.join(root, file)
                 fstat = os.stat(path, follow_symlinks=False)
                 if not Util.important_file(fstat, root, file):
                     if 0 == fstat.st_size:
                         self._stat.update_empty(path)
                     continue
-                self._stat.on_scan()
 
                 request_id = f"{self._id}-{path}"
                 request_id = hashlib.md5(request_id.encode("utf-8")).hexdigest()
@@ -59,13 +62,13 @@ class Client(Sweeper):
                     Util.debug(f"{file}{'~' * 5}SKIP", fmt_indent=3, fmt_time=True)
                     continue
 
+                self._stat.on_scan()
                 if not self._compare_size(_socket, request_id, path, fstat):
                     continue
 
                 self._compare_hash(_socket, request_id, path, fstat)
 
-                if self._stat.reach_target():
-                    return
+        return False
 
     def _compare_size(
         self, _socket: socket.socket, request_id, path: str, fstat: os.stat_result
