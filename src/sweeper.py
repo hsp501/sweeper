@@ -101,7 +101,7 @@ class Sweeper:
                 Util.debug(f"{k}:", fmt_indent=12)
                 for hash in v:
                     hash = str(hash)[1:-1].replace("'", "")
-                    Util.debug(hash, fmt_indent=12)
+                    Util.debug(hash, fmt_indent=15)
             else:
                 Util.debug(f"{k}: {v}", fmt_indent=12)
 

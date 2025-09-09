@@ -24,6 +24,7 @@ class Client(Sweeper):
         )
 
         self._local_mode = local_mode
+        self._session_id = Util.random_string(8)
 
     def start(self):
         self._stat.group_by_size(self._dirs)
@@ -38,7 +39,7 @@ class Client(Sweeper):
             files = len(group_files)
 
             if not self._local_mode:
-                request_id = f"{self._id}-size inquiry-[{size}]"
+                request_id = f"{self._id}:{self._session_id}-size inquiry-[{size}]"
                 if not self._compare_size(
                     self._socket, False, request_id, request_id, size
                 ):
@@ -59,7 +60,7 @@ class Client(Sweeper):
     def stop(self) -> Any:
         super().stop()
 
-        return self._flush_log()
+        return self._flush_stat()
 
     def _shrink(
         self, _socket: socket.socket, group_files: List[str]
@@ -82,7 +83,10 @@ class Client(Sweeper):
 
             fstat = os.stat(path, follow_symlinks=False)
             request_id = f"{self._id}-{path}"
-            request_id = hashlib.md5(request_id.encode("utf-8")).hexdigest()
+            request_id = (
+                hashlib.md5(request_id.encode("utf-8")).hexdigest()
+                + f"-{self._session_id}"
+            )
 
             if not self._compare_size(
                 _socket, self._local_mode, request_id, path, fstat.st_size
@@ -211,16 +215,21 @@ class Client(Sweeper):
 
         Util.debug(f"!!! {os.path.basename(path)}", fmt_indent=3, fmt_time=True)
 
-    def _flush_log(self) -> str:
-        log = f"sweeper.{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log", log)
-        os.makedirs(os.path.dirname(log), exist_ok=True)
+    def _flush_stat(self) -> str:
+        f_stat = f"sweeper.{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml"
+        f_stat = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log", f_stat)
+        os.makedirs(os.path.dirname(f_stat), exist_ok=True)
 
-        with open(log, "w", encoding="utf-8") as f:
+        with open(f_stat, "w", encoding="utf-8") as f:
+            stat = {}
+            stat["total"] = f"{self._stat.files_to_scan} files"
+            stat["freed"] = (
+                f"{Util.bytes_readable(self._stat.shrink_bytes)} from {self._stat.deleted} files"
+            )
+            stat["hashed"] = f"{Util.bytes_readable(self._stat.hash_bytes)}"
             yaml.dump(
                 {
-                    "total": f"{self._stat.files_to_scan} files",
-                    "stat": f"{Util.bytes_readable(self._stat.shrink_bytes)} from {self._stat.deleted} files, total hash {Util.bytes_readable(self._stat.hash_bytes)}",
+                    "stat": stat,
                     "error": self._stat.files_error,
                     "empty": self._stat.files_empty,
                     "duplicate": self._stat.files_duplicate,
@@ -231,7 +240,7 @@ class Client(Sweeper):
                 default_flow_style=False,
             )
 
-        return log
+        return f_stat
 
 
 def check_max(value):

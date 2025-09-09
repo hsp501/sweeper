@@ -10,7 +10,9 @@ from src import BLOCK_SIZE, HEAD_SIZE, Util
 class TestFakeFiles(unittest.TestCase):
     def setUp(self):
         self._dir_fake = os.path.dirname(os.path.abspath(__file__))
-        self._dir_fake = os.path.join(self._dir_fake, "fake_files")
+        self._dir_fake = os.path.join(
+            os.path.dirname(self._dir_fake), "fake_files", "auto"
+        )
         if os.path.exists(self._dir_fake):
             shutil.rmtree(self._dir_fake)
         os.makedirs(self._dir_fake, exist_ok=True)

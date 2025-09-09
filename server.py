@@ -83,23 +83,43 @@ class Server(Sweeper):
         size: int,
         client_hash: List,
     ) -> str:
+        if self._debug:
+            self._show_session_files(request_id, True)
+
         if request_id not in self._session:
             self._session[request_id] = None
             if size in self._stat.size_group:
                 self._session[request_id] = sorted(self._stat.size_group[size])
 
+        found = None
         while self._session[request_id]:
             path = self._session[request_id][0]
             if local_mode and path == client_path:
-                self._session[request_id].pop(0)
+                file_poped = self._session[request_id].pop(0)
+                if self._debug:
+                    Util.debug(
+                        f"pop session file[local]: {file_poped}",
+                        fmt_indent=3,
+                        fmt_time=True,
+                    )
                 continue
 
             if not self._check_hash(request_id, path, client_path, client_hash):
-                self._session[request_id].pop(0)
+                file_poped = self._session[request_id].pop(0)
+                if self._debug:
+                    Util.debug(
+                        f"pop session file[hash]: {file_poped}",
+                        fmt_indent=3,
+                        fmt_time=True,
+                    )
             else:
-                return path
+                found = path
+                break
 
-        return None
+        if self._debug:
+            self._show_session_files(request_id, False)
+
+        return found
 
     def _check_hash(
         self, request_id, path: str, client_path: str, client_hash: List
@@ -123,7 +143,21 @@ class Server(Sweeper):
             ref_hashes=client_hash,
         )
 
+        if server_hash and len(server_hash) > len(client_hash):
+            server_hash = server_hash[: len(client_hash)]
+
         return server_hash and self._equal_chunk_hashes(server_hash, client_hash)
+
+    def _show_session_files(self, request_id: str, flag_initial: bool):
+        head = f"{'>>>' if flag_initial else '<<<'} session files [{request_id}]:"
+        session_files = self._session.get(request_id, None)
+        if not session_files:
+            Util.debug(f"{head} None", fmt_indent=3, fmt_time=True)
+            return
+
+        Util.debug(head, fmt_indent=3, fmt_time=True)
+        for i, path in enumerate(session_files):
+            Util.debug(f"{i:02d}: {path}", fmt_indent=12)
 
 
 def parse_args():

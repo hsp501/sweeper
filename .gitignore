@@ -3,8 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 x.scan_result/
-tests/fake_files/
-sample_files/
+fake_files/
 
 # C extensions
 *.so
