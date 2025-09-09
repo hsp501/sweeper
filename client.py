@@ -231,7 +231,7 @@ class Client(Sweeper):
                 {
                     "stat": stat,
                     "error": self._stat.files_error,
-                    "empty": self._stat.files_empty,
+                    "blank": self._stat.files_0bytes,
                     "duplicate": self._stat.files_duplicate,
                 },
                 f,

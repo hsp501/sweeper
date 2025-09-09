@@ -39,18 +39,18 @@ class ShrinkStat:
                         size_group[fstat.st_size].append(path)
                         self._important_files += 1
                     elif 0 == fstat.st_size:
-                        self.update_empty(path)
+                        self.update_0bytes(path)
 
         self._size_group = size_group
 
-    def update_empty(self, path: str):
+    def update_0bytes(self, path: str):
         self._files_0bytes.append(path)
 
     def update_error(self, path: str):
         self._files_errors.append(path)
 
     @property
-    def files_empty(self) -> List:
+    def files_0bytes(self) -> List:
         return self._files_0bytes
 
     @property
