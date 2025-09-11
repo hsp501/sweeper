@@ -7,12 +7,12 @@ from src import Util
 
 
 class ShrinkStat:
-    def __init__(self, *, max_delete: int = 0, max_scan: int = 0) -> None:
+    def __init__(self, *, limit_delete: int = 0, limit_scan: int = 0) -> None:
         self._files_0bytes = []
         self._files_errors = []
         self._files_duplicate = {}
 
-        self._max_delete, self._max_scan = max_delete, max_scan
+        self._limit_delete, self._limit_scan = limit_delete, limit_scan
 
         (
             self._deleted,
@@ -32,7 +32,11 @@ class ShrinkStat:
             for root, _, files in os.walk(top):
                 for file in files:
                     path = os.path.join(root, file)
-                    fstat = os.stat(path, follow_symlinks=False)
+
+                    fstat = Util.stat(path)
+                    if not fstat:
+                        continue
+
                     if Util.important_file(fstat, root, file):
                         if fstat.st_size not in size_group:
                             size_group[fstat.st_size] = []
@@ -81,7 +85,7 @@ class ShrinkStat:
         key = hashlib.md5(key.encode("utf-8")).hexdigest()
         if key not in self._files_duplicate:
             duplicates = []
-            duplicates.append(f"{Util.bytes_readable(free_space)}-{free_space}")
+            duplicates.append(f"{Util.readable_size(free_space)}-{free_space}")
             duplicates.append(f"original@{server_id}:{server_path}")
             self._files_duplicate[key] = duplicates
         duplicates = self._files_duplicate[key]
@@ -115,8 +119,8 @@ class ShrinkStat:
         self._scaned += scaned
 
     def reach_limit(self) -> bool:
-        return (self._max_scan > 0 and self._scaned >= self._max_scan) or (
-            self._max_delete > 0 and self._deleted >= self._max_delete
+        return (self._limit_scan > 0 and self._scaned >= self._limit_scan) or (
+            self._limit_delete > 0 and self._deleted >= self._limit_delete
         )
 
     def on_hash(self, size: int):
@@ -143,3 +147,7 @@ class ShrinkStat:
     @property
     def scaned(self) -> int:
         return self._scaned
+
+    def on_erase(self, free_space: int):
+        self._deleted += 1
+        self._shrink_bytes += free_space

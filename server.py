@@ -3,15 +3,15 @@ import os
 import socket
 from typing import Dict, List
 
-from src import Command, Key, Sweeper, Util
+from src import Command, Key, Messanger, Role, Sweeper, Util
 
 
 class Server(Sweeper):
-    def __init__(self, yaml_file: str, debug: bool):
-        super().__init__(False, yaml_file, debug=debug)
+    def __init__(self, yaml_file: str, *, debug_mode: bool):
+        super().__init__(Role.SERVER, yaml_file, debug_mode=debug_mode)
 
     def start(self):
-        self._stat.group_by_size(self._dirs)
+        self._stat.group_by_size(self._sweep_dirs)
         self._show_sweep_dirs()
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -25,20 +25,27 @@ class Server(Sweeper):
                 self._handle_request(csocket)
 
     def _handle_request(self, _socket: socket.socket):
+        if self._messanger:
+            self._messanger.close()
+        self._messanger = Messanger(self._device_id, _socket, self._debug_mode)
+
         while True:
-            request = self._recv_json(_socket)
+            request = self._messanger.recv_json()
             if not request:
                 break
 
             if request[Key.COMMAND] == Command.CHECK_SIZE:
-                self._handle_req_size(_socket, request)
+                self._handle_req_size(request)
             elif request[Key.COMMAND] == Command.CHECK_HASH:
-                self._handle_req_hash(_socket, request)
+                self._handle_req_chunk_hash(request)
+            elif request[Key.COMMAND] == Command.CALC_FILE_HASH:
+                self._handle_req_file_hash(request)
             else:
-                _socket.close()
+                self._messanger.close()
+                self._messanger = None
                 break
 
-    def _handle_req_size(self, _socket: socket.socket, request: Dict):
+    def _handle_req_size(self, request: Dict):
         result = 0
 
         size = request[Key.SIZE]
@@ -48,16 +55,20 @@ class Server(Sweeper):
             if request[Key.LOCAL_MODE] and request[Key.PATH] in files:
                 result -= 1
 
-        self._send_json(
-            _socket,
-            self._echo_size(
-                request_id=request[Key.REQUEST_ID],
-                size=size,
-                files=result,
-            ),
+        msg = self._msg_builder.echo_size(
+            device_id=self._device_id,
+            request_id=request[Key.REQUEST_ID],
+            size=size,
+            files=result,
         )
+        self._messanger.send_json(msg)
 
-    def _handle_req_hash(self, _socket: socket.socket, request: Dict):
+    def _handle_req_chunk_hash(self, request: Dict):
+        Util.debug(
+            f"chunk hash: {os.path.basename(request[Key.PATH])}[{len(request[Key.HASH]):02d}]-{request[Key.REQUEST_ID]}",
+            fmt_indent=3,
+            fmt_time=True,
+        )
         path = self._filter_by_hash(
             request_id=request[Key.REQUEST_ID],
             local_mode=request[Key.LOCAL_MODE],
@@ -66,13 +77,29 @@ class Server(Sweeper):
             client_hash=request[Key.HASH],
         )
 
-        self._send_json(
-            _socket,
-            self._echo_hash(
-                request_id=request[Key.REQUEST_ID],
-                path=path,
-            ),
+        msg = self._msg_builder.echo_hash(
+            device_id=self._device_id,
+            request_id=request[Key.REQUEST_ID],
+            path=path,
         )
+        self._messanger.send_json(msg)
+
+    def _handle_req_file_hash(self, request: Dict):
+        path = request[Key.PATH]
+        size = request[Key.SIZE]
+        request_id = request[Key.REQUEST_ID]
+
+        file_hash = None
+        if self._device_id == request[Key.SERVER_ID] and Util.check_file_size(
+            path, size
+        ):
+            file_hash = self._ch.file_hash(path)
+
+        msg = self._msg_builder.echo_calc_file_hash(
+            device_id=self._device_id, request_id=request_id, hash=file_hash
+        )
+
+        self._messanger.send_json(msg)
 
     def _filter_by_hash(
         self,
@@ -83,7 +110,7 @@ class Server(Sweeper):
         size: int,
         client_hash: List,
     ) -> str:
-        if self._debug:
+        if self._debug_mode:
             self._show_session_files(request_id, True)
 
         if request_id not in self._session:
@@ -96,7 +123,7 @@ class Server(Sweeper):
             path = self._session[request_id][0]
             if local_mode and path == client_path:
                 file_poped = self._session[request_id].pop(0)
-                if self._debug:
+                if self._debug_mode:
                     Util.debug(
                         f"pop session file[local]: {file_poped}",
                         fmt_indent=3,
@@ -106,7 +133,7 @@ class Server(Sweeper):
 
             if not self._check_hash(request_id, path, client_path, client_hash):
                 file_poped = self._session[request_id].pop(0)
-                if self._debug:
+                if self._debug_mode:
                     Util.debug(
                         f"pop session file[hash]: {file_poped}",
                         fmt_indent=3,
@@ -116,7 +143,7 @@ class Server(Sweeper):
                 found = path
                 break
 
-        if self._debug:
+        if self._debug_mode:
             self._show_session_files(request_id, False)
 
         return found
@@ -134,7 +161,10 @@ class Server(Sweeper):
             self._show_chunk_hash(client_hash, fmt_indent=16)
             return False
 
-        fstat = os.stat(path, follow_symlinks=False)
+        fstat = Util.stat(path)
+        if not fstat:
+            return False
+
         fid, server_hash = self._file_details(
             path=path,
             size=fstat.st_size,
@@ -184,7 +214,7 @@ def parse_args():
 if "__main__" == __name__:
     try:
         args = parse_args()
-        server = Server(args.yaml, args.debug)
+        server = Server(args.yaml, debug_mode=args.debug)
         server.start()
     except KeyboardInterrupt:
         pass

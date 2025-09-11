@@ -1,5 +1,5 @@
 import hashlib
-from typing import Tuple
+from typing import Optional, Tuple
 
 HEAD_SIZE = 128 * 1024
 BLOCK_SIZE = 64 * 1024 * 1024
@@ -61,3 +61,15 @@ class ChunkHash:
                 readed += len(bytes_read)
 
         return md5.hexdigest(), readed
+
+    def file_hash(self, path, chunk_size=READ_SIZE) -> Optional[str]:
+        try:
+            md5 = hashlib.md5()
+
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(chunk_size), b""):
+                    md5.update(chunk)
+
+            return md5.hexdigest()
+        except Exception:
+            return None

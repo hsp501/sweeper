@@ -3,35 +3,36 @@ import hashlib
 import os
 import socket
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from src import Command, Key, Sweeper, Util
+from src import Command, Key, Messanger, Role, Sweeper, Util
 
 
-class Client(Sweeper):
+class Scanner(Sweeper):
     def __init__(
-        self,
-        yaml_file: str,
-        max_delete: int,
-        max_scan: int,
-        local_mode: bool,
-        debug: bool,
+        self, yaml_file: str, *, local_mode: bool, debug_mode: bool, limit: Tuple
     ):
         super().__init__(
-            True, yaml_file, max_delete=max_delete, max_scan=max_scan, debug=debug
+            Role.SCANNER,
+            yaml_file,
+            limit=limit,
+            debug_mode=debug_mode,
         )
 
         self._local_mode = local_mode
-        self._session_id = Util.random_string(8)
+        self._session_id = (
+            f"{Util.random_string(3)}[{datetime.now().strftime('%H%M%S')}]"
+        )
 
     def start(self):
-        self._stat.group_by_size(self._dirs)
+        self._stat.group_by_size(self._sweep_dirs)
         self._show_sweep_dirs()
 
-        self._socket: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.connect((self._host, self._port))
+        _socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _socket.connect((self._host, self._port))
+        self._messanger = Messanger(self._device_id, _socket, self._debug_mode)
 
         # 优先处理大文件
         for size in sorted(self._stat.size_group.keys(), reverse=True):
@@ -39,14 +40,14 @@ class Client(Sweeper):
             files = len(group_files)
 
             if not self._local_mode:
-                request_id = f"{self._id}:{self._session_id}-size inquiry-[{size}]"
-                if not self._compare_size(
-                    self._socket, False, request_id, request_id, size
-                ):
+                request_id = (
+                    f"{self._device_id}:{self._session_id}-size inquiry-[{size}]"
+                )
+                if not self._compare_size(False, request_id, request_id, size):
                     self._stat.on_scan(files)
                     continue
 
-            reach_limit, flg_hashed = self._shrink(self._socket, group_files)
+            reach_limit, flg_hashed = self._shrink(group_files)
 
             if flg_hashed:
                 Util.debug(
@@ -62,9 +63,7 @@ class Client(Sweeper):
 
         return self._flush_stat()
 
-    def _shrink(
-        self, _socket: socket.socket, group_files: List[str]
-    ) -> Tuple[bool, bool]:
+    def _shrink(self, group_files: List[str]) -> Tuple[bool, bool]:
         flag_hashed = False
 
         for path in group_files:
@@ -81,43 +80,44 @@ class Client(Sweeper):
                 )
                 continue
 
-            fstat = os.stat(path, follow_symlinks=False)
-            request_id = f"{self._id}-{path}"
+            fstat = Util.stat(path)
+            if not fstat:
+                continue
+
+            request_id = f"{self._device_id}-{path}"
             request_id = (
                 hashlib.md5(request_id.encode("utf-8")).hexdigest()
                 + f"-{self._session_id}"
             )
 
             if not self._compare_size(
-                _socket, self._local_mode, request_id, path, fstat.st_size
+                self._local_mode, request_id, path, fstat.st_size
             ):
                 continue
 
-            self._compare_hash(_socket, request_id, path, fstat)
+            self._compare_hash(request_id, path, fstat)
             flag_hashed = True
 
         return False, flag_hashed
 
     def _compare_size(
         self,
-        _socket: socket.socket,
         local_mode,
         request_id,
         path: str,
         size: int,
     ) -> bool:
-        if not self._send_json(
-            _socket,
-            self._req_size(
-                request_id=request_id,
-                local_mode=local_mode,
-                path=path,
-                size=size,
-            ),
-        ):
+        msg = self._msg_builder.req_size(
+            device_id=self._device_id,
+            request_id=request_id,
+            local_mode=local_mode,
+            path=path,
+            size=size,
+        )
+        if not self._messanger.send_json(msg):
             return False
 
-        echo_message = self._recv_json(_socket)
+        echo_message = self._messanger.recv_json()
         if not (
             echo_message
             and Key.RESULT in echo_message
@@ -130,9 +130,7 @@ class Client(Sweeper):
 
         return echo_message[Key.RESULT] > 0
 
-    def _compare_hash(
-        self, _socket: socket.socket, request_id, path: str, fstat: os.stat_result
-    ):
+    def _compare_hash(self, request_id, path: str, fstat: os.stat_result):
         fid, chunk_hashes = self._file_details(
             path=path, size=fstat.st_size, mtime=fstat.st_mtime, request_id=request_id
         )
@@ -144,8 +142,8 @@ class Client(Sweeper):
         while True:
             # check chunk hashes
             error, echo_message = self._check_chunk_hashes(
-                _socket,
-                self._req_hash(
+                self._msg_builder.req_hash(
+                    device_id=self._device_id,
                     request_id=request_id,
                     local_mode=self._local_mode,
                     path=path,
@@ -176,19 +174,17 @@ class Client(Sweeper):
             # update next chunk
             self._update_next_chunk(fid, path, chunk_hashes)
 
-    def _check_chunk_hashes(
-        self, _socket: socket.socket, message: Dict
-    ) -> Tuple[bool, Any, Dict]:
+    def _check_chunk_hashes(self, msg: Dict) -> Tuple[bool, Optional[Dict]]:
         # return value (error_flag, echo_message)
-        if not self._send_json(_socket, message):
+        if not self._messanger.send_json(msg):
             return True, None
 
-        echo_message = self._recv_json(_socket)
+        echo_message = self._messanger.recv_json()
         if not (
             echo_message
             and Key.RESULT in echo_message
             and Command.ECHO_CHECK_HASH == echo_message.get(Key.COMMAND, None)
-            and message[Key.REQUEST_ID] == echo_message.get(Key.REQUEST_ID, None)
+            and msg[Key.REQUEST_ID] == echo_message.get(Key.REQUEST_ID, None)
         ):
             info = "unexpected echo message"
             if echo_message:
@@ -224,11 +220,18 @@ class Client(Sweeper):
             stat = {}
             stat["total"] = f"{self._stat.files_to_scan} files"
             stat["freed"] = (
-                f"{Util.bytes_readable(self._stat.shrink_bytes)} from {self._stat.deleted} files"
+                f"{Util.readable_size(self._stat.shrink_bytes)} from {self._stat.deleted} files"
             )
-            stat["hashed"] = f"{Util.bytes_readable(self._stat.hash_bytes)}"
+            stat["hashed"] = f"{Util.readable_size(self._stat.hash_bytes)}"
             yaml.dump(
                 {
+                    "id": self._device_id,
+                    "local_mode": self._local_mode,
+                    "server": f"{self._host}:{self._port}",
+                    "sweep_dirs": [
+                        "*** absolute path in which duplicate files will be deleted ***"
+                    ],
+                    "-": "-" * 90,
                     "stat": stat,
                     "error": self._stat.files_error,
                     "blank": self._stat.files_0bytes,
@@ -258,7 +261,7 @@ def parse_args():
 
     parser.add_argument(
         "--yaml",
-        default="client.yaml",
+        default="scanner.yaml",
         help="the yaml config of directory list from where to compare file & release space",
     )
 
@@ -296,11 +299,16 @@ def parse_args():
 if "__main__" == __name__:
     try:
         args = parse_args()
-        client = Client(args.yaml, args.delete, args.scan, args.local, args.debug)
-        client.start()
+        scanner = Scanner(
+            args.yaml,
+            local_mode=args.local,
+            debug_mode=args.debug,
+            limit=(args.delete, args.scan),
+        )
+        scanner.start()
     except KeyboardInterrupt:
         pass
     finally:
-        log = client.stop()
+        log = scanner.stop()
         print("")
         Util.debug(f"log: {log}", fmt_time=True)

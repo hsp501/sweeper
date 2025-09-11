@@ -15,10 +15,14 @@ class Command(StrEnum):
     CHECK_HASH = "check_hash"
     ECHO_CHECK_HASH = "echo_check_hash"
 
+    CALC_FILE_HASH = "calc_file_hash"
+    ECHO_CALC_FILE_HASH = "echo_calc_file_hash"
+
 
 class Key(StrEnum):
     COMMAND = "command"
     DEVICE_ID = "device_id"
+    SERVER_ID = "server_id"
     REQUEST_ID = "request_id"
     LOCAL_MODE = "local_mode"
     PATH = "path"

@@ -2,6 +2,7 @@ import json
 import os
 import socket
 import struct
+from enum import IntEnum
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
@@ -9,101 +10,222 @@ import yaml
 from src import ChunkHash, Command, HashDB, Key, ShrinkStat, Util
 
 
-class Sweeper:
-    def __init__(
+class Role(IntEnum):
+    SERVER = 0
+    SCANNER = 1
+    SHRINKER = 2
+
+
+class MessageBuilder:
+    def req_size(
+        self, *, device_id: str, request_id, local_mode: bool, path: str, size: int
+    ) -> Dict:
+        return {
+            Key.COMMAND: Command.CHECK_SIZE,
+            Key.DEVICE_ID: device_id,
+            Key.REQUEST_ID: request_id,
+            Key.LOCAL_MODE: local_mode,
+            Key.PATH: path,
+            Key.SIZE: size,
+        }
+
+    def echo_size(self, *, device_id: str, request_id, size: int, files: int) -> Dict:
+        return {
+            Key.COMMAND: Command.ECHO_CHECK_SIZE,
+            Key.DEVICE_ID: device_id,
+            Key.REQUEST_ID: request_id,
+            Key.SIZE: size,
+            Key.RESULT: files,
+        }
+
+    def req_hash(
         self,
-        client_mode: bool,
-        yaml_file: str,
         *,
-        max_delete: int = 0,
-        max_scan: int = 0,
-        debug: bool = False,
-    ) -> None:
-        self._client_mode = client_mode
-        self._socket: socket.socket = None
-        self._stat = ShrinkStat(max_delete=max_delete, max_scan=max_scan)
-        self._debug = debug
+        device_id: str,
+        request_id,
+        local_mode: bool,
+        path: str,
+        size: int,
+        chunk_hashes: List,
+    ) -> Dict:
+        return {
+            Key.COMMAND: Command.CHECK_HASH,
+            Key.DEVICE_ID: device_id,
+            Key.REQUEST_ID: request_id,
+            Key.LOCAL_MODE: local_mode,
+            Key.PATH: path,
+            Key.SIZE: size,
+            Key.HASH: chunk_hashes,
+        }
 
-        pwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(pwd, yaml_file), "r") as f:
-            config = yaml.safe_load(f)
+    def echo_hash(self, *, device_id: str, request_id, path: str) -> Dict:
+        return {
+            Key.COMMAND: Command.ECHO_CHECK_HASH,
+            Key.DEVICE_ID: device_id,
+            Key.REQUEST_ID: request_id,
+            Key.RESULT: path,
+        }
 
-            self._dirs = []
-            for dir in config["dirs"]:
-                self._dirs.append(os.path.abspath(dir))
+    def req_calc_file_hash(
+        self, *, device_id: str, request_id, server_id: str, path: str, size: int
+    ) -> Dict:
+        return {
+            Key.COMMAND: Command.CALC_FILE_HASH,
+            Key.DEVICE_ID: device_id,
+            Key.REQUEST_ID: request_id,
+            Key.SERVER_ID: server_id,
+            Key.PATH: path,
+            Key.SIZE: size,
+        }
 
-            self._id = (
-                config["id"]
-                if "id" in config
-                else f"{'client' if self._client_mode else 'server'}-{Util.random_string()}"
-            )
+    def echo_calc_file_hash(self, *, device_id: str, request_id, hash: str) -> Dict:
+        return {
+            Key.COMMAND: Command.ECHO_CALC_FILE_HASH,
+            Key.DEVICE_ID: device_id,
+            Key.REQUEST_ID: request_id,
+            Key.RESULT: hash,
+        }
 
-            key = "server" if self._client_mode else "bind"
-            address = config[key].split(":")
-            self._host = address[0]
-            self._port = int(address[1]) if len(address) == 2 else 5555
 
-            self._ch = ChunkHash()
-            self._db = HashDB(os.path.join(pwd, config["hash_db"]))
+class Messanger:
+    def __init__(self, device_id: str, socket: socket.socket, debug_mode: bool):
+        self._device_id = device_id
+        self._socket = socket
+        self._debug_mode = debug_mode
 
-    def stop(self) -> Any:
-        try:
-            if self._socket:
-                self._socket.close()
-        except Exception:
-            pass
-
-    def _send_json(self, _socket: socket.socket, message: Dict) -> bool:
+    def send_json(self, message: Dict) -> bool:
         try:
             raw = json.dumps(message).encode()
-            _socket.sendall(struct.pack("!I", len(raw)) + raw)
+            self._socket.sendall(struct.pack("!I", len(raw)) + raw)
 
-            if self._debug:
-                self._show_socket_data(message, True)
+            if self._debug_mode:
+                self._debug_socket_data(message, True, fmt_indent=3, fmt_time=True)
 
             return True
         except Exception as exp:
-            Util.debug(f"_send_json() -> {str(exp)}", fmt_time=True)
+            Util.debug(f"send_json() -> {str(exp)}", fmt_time=True)
             return False
 
-    def _recv_json(self, _socket: socket.socket) -> Dict:
-        raw_len = _socket.recv(4)
+    def recv_json(self) -> Dict:
+        raw_len = self._socket.recv(4)
         if not raw_len:
             return None
 
         data = b""
         to_read = struct.unpack("!I", raw_len)[0]
         while len(data) < to_read:
-            chunk = _socket.recv(to_read - len(data))
+            chunk = self._socket.recv(to_read - len(data))
             if not chunk:
                 return None
             data += chunk
 
         message = json.loads(data.decode())
-        if self._debug:
-            self._show_socket_data(message, False)
+        if self._debug_mode:
+            self._debug_socket_data(message, False, fmt_indent=3, fmt_time=True)
 
         return message
+
+    def _debug_socket_data(
+        self, data: Dict, send: bool, *, fmt_indent: int, fmt_time: bool
+    ):
+        time_space = 9 if fmt_time else 0
+
+        Util.debug(
+            f"{self._device_id} {'--->>>' if send else '<<<---'}:",
+            fmt_indent=fmt_indent,
+            fmt_time=fmt_time,
+        )
+        for k, v in data.items():
+            if k == Key.HASH:
+                Util.debug(f"{k}:", fmt_indent=fmt_indent + time_space)
+                for hash in v:
+                    hash = str(hash)[1:-1].replace("'", "")
+                    Util.debug(hash, fmt_indent=fmt_indent + time_space + 3)
+            else:
+                Util.debug(f"{k}: {v}", fmt_indent=fmt_indent + time_space)
+
+    def close(self) -> Any:
+        try:
+            if self._socket:
+                self._socket.close()
+        except Exception:
+            pass
+
+
+class Storage:
+    def __init__(
+        self,
+        role: Role,
+        yaml_file: str,
+        *,
+        limit: Tuple = None,
+        debug_mode: bool = False,
+    ):
+        self._role: Role = role
+        self._debug_mode = debug_mode
+
+        self._messanger: Messanger = None
+        self._msg_builder = MessageBuilder()
+
+        limit_delete, limit_scan = limit if limit else (0, 0)
+        self._stat = ShrinkStat(limit_delete=limit_delete, limit_scan=limit_scan)
+
+        self._yaml_file = yaml_file
+        with open(yaml_file, "r") as f:
+            config = yaml.safe_load(f)
+            self._parse_yaml(config)
+
+    def start(self):
+        pass
+
+    def _parse_yaml(self, config: Dict):
+        self._config = config
+
+        self._sweep_dirs = []
+        for dir in config["sweep_dirs"]:
+            self._sweep_dirs.append(dir)
+
+        self._device_id = (
+            config["id"]
+            if "id" in config
+            else f"{self._role.name}-{Util.random_string()}"
+        )
+
+        key = "bind" if self._role == Role.SERVER else "server"
+        address = config[key].split(":")
+        self._host = address[0]
+        self._port = int(address[1]) if len(address) == 2 else 5555
+
+        self._ch = ChunkHash()
 
     def _show_sweep_dirs(self):
         Util.debug("sweep directory list:", fmt_time=True)
 
-        for i, top in enumerate(self._dirs):
+        for i, top in enumerate(self._sweep_dirs):
             Util.debug(f"{(i + 1):02d}: {top}", fmt_indent=3)
         print("")
 
-    def _show_socket_data(self, data: Dict, send: bool):
-        Util.debug(
-            f"{self._id} {'--->>>' if send else '<<<---'}:", fmt_indent=3, fmt_time=True
-        )
-        for k, v in data.items():
-            if k == Key.HASH:
-                Util.debug(f"{k}:", fmt_indent=12)
-                for hash in v:
-                    hash = str(hash)[1:-1].replace("'", "")
-                    Util.debug(hash, fmt_indent=15)
-            else:
-                Util.debug(f"{k}: {v}", fmt_indent=12)
+
+class Sweeper(Storage):
+    def __init__(
+        self,
+        role: Role,
+        yaml_file: str,
+        *,
+        limit: Tuple = None,
+        debug_mode: bool = False,
+    ) -> None:
+        super().__init__(role, yaml_file, limit=limit, debug_mode=debug_mode)
+
+    def _parse_yaml(self, config: Dict):
+        super()._parse_yaml(config)
+
+        pwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._db = HashDB(os.path.join(pwd, config["hash_db"]))
+
+    def stop(self) -> Any:
+        if self._messanger:
+            self._messanger.close()
 
     def _show_chunk_hash(
         self, chunk_hashes: List, *, fmt_indent: int = 0, fmt_time: bool = False
@@ -170,46 +292,6 @@ class Sweeper:
                     break
 
         return fid, chunk_hashes
-
-    def _req_size(self, *, request_id, local_mode: bool, path: str, size: int) -> Dict:
-        return {
-            Key.COMMAND: Command.CHECK_SIZE,
-            Key.DEVICE_ID: self._id,
-            Key.REQUEST_ID: request_id,
-            Key.LOCAL_MODE: local_mode,
-            Key.PATH: path,
-            Key.SIZE: size,
-        }
-
-    def _echo_size(self, *, request_id, size: int, files: int) -> Dict:
-        return {
-            Key.COMMAND: Command.ECHO_CHECK_SIZE,
-            Key.DEVICE_ID: self._id,
-            Key.REQUEST_ID: request_id,
-            Key.SIZE: size,
-            Key.RESULT: files,
-        }
-
-    def _req_hash(
-        self, *, request_id, local_mode: bool, path: str, size: int, chunk_hashes: List
-    ) -> Dict:
-        return {
-            Key.COMMAND: Command.CHECK_HASH,
-            Key.DEVICE_ID: self._id,
-            Key.REQUEST_ID: request_id,
-            Key.LOCAL_MODE: local_mode,
-            Key.PATH: path,
-            Key.SIZE: size,
-            Key.HASH: chunk_hashes,
-        }
-
-    def _echo_hash(self, *, request_id, path: str) -> Dict:
-        return {
-            Key.COMMAND: Command.ECHO_CHECK_HASH,
-            Key.DEVICE_ID: self._id,
-            Key.REQUEST_ID: request_id,
-            Key.RESULT: path,
-        }
 
     def _equal_chunk_hashes(self, hash1: List, hash2: List) -> bool:
         if hash1 and hash2:

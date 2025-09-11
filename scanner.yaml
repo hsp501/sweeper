@@ -1,5 +1,5 @@
-id: vostro5501
-bind: 0.0.0.0:5555
-hash_db: server.db
+id: client
+server: localhost:5555
+hash_db: client.db
 sweep_dirs:
   - /home/hsp501/x.data/code/python/sweeper/fake_files

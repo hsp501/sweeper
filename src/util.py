@@ -3,12 +3,13 @@ import random
 import stat
 import string
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
 
 class Util:
     @staticmethod
-    def bytes_readable(num_bytes: int) -> str:
+    def readable_size(num_bytes: int) -> str:
         size = float(num_bytes)
         units = ["B", "KB", "MB", "GB", "TB", "PB"]
         for unit in units:
@@ -63,3 +64,27 @@ class Util:
         return (
             fstat.st_size > 0 and stat.S_ISREG(fstat.st_mode) and "@eaDir" not in path
         )
+
+    @staticmethod
+    def is_parent_dir(dir: str, file: str) -> bool:
+        path_file = Path(file).resolve()
+        try:
+            path_file.relative_to(dir)
+            return True
+        except ValueError:
+            return False
+
+    @staticmethod
+    def check_file_size(path: str, size: int) -> bool:
+        if os.path.isabs(path) and os.path.exists(path):
+            fstat = os.stat(path, follow_symlinks=False)
+            return stat.S_ISREG(fstat.st_mode) and fstat.st_size == size
+
+        return False
+
+    @staticmethod
+    def stat(path: str, *, follow_symlinks: bool = False):
+        try:
+            return os.stat(path, follow_symlinks=follow_symlinks)
+        except Exception:
+            return None

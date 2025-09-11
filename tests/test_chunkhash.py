@@ -42,9 +42,11 @@ class TestChunkHash(unittest.TestCase):
         self.assertEqual(blocks, self._ch.blocks(size))
         print(f"{os.path.basename(file_path)}: {size:09d} {blocks:02d}")
 
+        self.assertTrue(BLOCK_SIZE % HEAD_SIZE == 0)
+        size_times = BLOCK_SIZE // HEAD_SIZE
         for i in range(blocks):
-            count = 1 if 0 == i else 512
-            skip = 0 if 0 == i else (1 + (i - 1) * 512)
+            count = 1 if 0 == i else size_times
+            skip = 0 if 0 == i else (1 + (i - 1) * size_times)
 
             hash, blk_size = self._ch.block_hash(path=file_path, serial=i + 1)
             cmd = f"dd if={file_path} bs=128K skip={skip} count={count} status=none | md5sum"
@@ -79,6 +81,16 @@ class TestChunkHash(unittest.TestCase):
             self._hash_file(size, self._file_id)
             self._file_id += 1
             print("")
+
+        for id in range(1, self._file_id):
+            path = os.path.join(self._dir_temp, f"chunk_hash_{id:03d}.bin")
+            self.assertTrue(os.path.exists(path))
+            hash1 = subprocess.check_output(["md5sum", path], text=True)
+            hash1 = hash1.split()[0]
+            hash2 = self._ch.file_hash(path)
+            self.assertEqual(hash1, hash2)
+
+            print(f"{os.path.basename(path)}: {hash2}")
 
 
 if __name__ == "__main__":
