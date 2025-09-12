@@ -233,6 +233,7 @@ class Scanner(Sweeper):
                     ],
                     "-": "-" * 90,
                     "stat": stat,
+                    "scanned_dirs": self._sweep_dirs,
                     "error": self._stat.files_error,
                     "blank": self._stat.files_0bytes,
                     "duplicate": self._stat.files_duplicate,

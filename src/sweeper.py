@@ -175,7 +175,7 @@ class Storage:
         self._stat = ShrinkStat(limit_delete=limit_delete, limit_scan=limit_scan)
 
         self._yaml_file = yaml_file
-        with open(yaml_file, "r") as f:
+        with open(yaml_file, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
             self._parse_yaml(config)
 
