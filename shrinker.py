@@ -220,6 +220,28 @@ class Shrink(Storage):
 
         return sorted_copy
 
+    def parse_duplicate_directory(self):
+        dir_stat = {}
+        for _, scan_result in self._config["duplicate"].items():
+            if self._local_mode:
+                _, file_original = self._parse_original(scan_result[1])
+                dir = os.path.dirname(file_original)
+                if dir not in dir_stat:
+                    dir_stat[dir] = 1
+                else:
+                    dir_stat[dir] += 1
+
+            for file in scan_result[2:]:
+                dir = os.path.dirname(file)
+                if dir not in dir_stat:
+                    dir_stat[dir] = 1
+                else:
+                    dir_stat[dir] += 1
+
+        Util.debug("duplicate directory list:", fmt_time=True)
+        for i, dir in enumerate(sorted(dir_stat.keys())):
+            Util.debug(f"{(i + 1):03d}: [{dir_stat[dir]:04d}] {dir}", fmt_indent=3)
+
 
 def check_max(value):
     _max = int(value)
@@ -234,6 +256,13 @@ def parse_args():
 
     parser.add_argument(
         "--yaml", required=True, help="the yaml stat file produced by sweeper client"
+    )
+
+    parser.add_argument(
+        "--parse",
+        action="store_true",
+        default=False,
+        help="parse yaml stat file and output directory which duplicate files locate in",
     )
 
     parser.add_argument(
@@ -285,6 +314,9 @@ if "__main__" == __name__:
             step_mode=not args.auto,
             erase_blank=args.blank,
         )
-        shrinker.start()
+        if args.parse:
+            shrinker.parse_duplicate_directory()
+        else:
+            shrinker.start()
     except KeyboardInterrupt:
         pass

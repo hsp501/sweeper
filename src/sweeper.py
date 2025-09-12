@@ -107,23 +107,27 @@ class Messanger:
             return False
 
     def recv_json(self) -> Dict:
-        raw_len = self._socket.recv(4)
-        if not raw_len:
-            return None
-
-        data = b""
-        to_read = struct.unpack("!I", raw_len)[0]
-        while len(data) < to_read:
-            chunk = self._socket.recv(to_read - len(data))
-            if not chunk:
+        try:
+            raw_len = self._socket.recv(4)
+            if not raw_len:
                 return None
-            data += chunk
 
-        message = json.loads(data.decode())
-        if self._debug_mode:
-            self._debug_socket_data(message, False, fmt_indent=3, fmt_time=True)
+            data = b""
+            to_read = struct.unpack("!I", raw_len)[0]
+            while len(data) < to_read:
+                chunk = self._socket.recv(to_read - len(data))
+                if not chunk:
+                    return None
+                data += chunk
 
-        return message
+            message = json.loads(data.decode())
+            if self._debug_mode:
+                self._debug_socket_data(message, False, fmt_indent=3, fmt_time=True)
+
+            return message
+        except Exception as exp:
+            Util.debug(f"recv_json() -> {str(exp)}", fmt_time=True)
+            return None
 
     def _debug_socket_data(
         self, data: Dict, send: bool, *, fmt_indent: int, fmt_time: bool
