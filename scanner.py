@@ -66,7 +66,7 @@ class Scanner(Sweeper):
     def _shrink(self, group_files: List[str]) -> Tuple[bool, bool]:
         flag_hashed = False
 
-        for path in group_files:
+        for path in sorted(group_files):
             if self._stat.reach_limit():
                 return True, flag_hashed
 
@@ -75,7 +75,6 @@ class Scanner(Sweeper):
             if self._local_mode and self._stat.skip_scan(path):
                 Util.debug(
                     f"{os.path.basename(path)}{'~' * 5}SKIP",
-                    fmt_indent=3,
                     fmt_time=True,
                 )
                 continue
@@ -138,6 +137,7 @@ class Scanner(Sweeper):
             self._record_file_with_error(path)
             return
 
+        flag_time = True
         blocks = self._ch.blocks(fstat.st_size)
         while True:
             # check chunk hashes
@@ -167,11 +167,13 @@ class Scanner(Sweeper):
                 ):
                     Util.debug(
                         f"{os.path.basename(path)}{'-' * 5}COPY",
-                        fmt_indent=12,
+                        fmt_indent=(0 if flag_time else 9),
+                        fmt_time=flag_time,
                     )
                 break
 
             # update next chunk
+            flag_time = False
             self._update_next_chunk(fid, path, chunk_hashes)
 
     def _check_chunk_hashes(self, msg: Dict) -> Tuple[bool, Optional[Dict]]:
@@ -189,7 +191,7 @@ class Scanner(Sweeper):
             info = "unexpected echo message"
             if echo_message:
                 info += f" [{str(echo_message)}]"
-            Util.debug(info, fmt_indent=3, fmt_time=True)
+            Util.debug(info, fmt_time=True)
             return True, None
 
         return False, echo_message
@@ -200,7 +202,7 @@ class Scanner(Sweeper):
         self._stat.on_hash(block_size)
         if -1 != fid:
             if self._db.add_chunk_hashes(fid=fid, hashes=[(serial, block_size, hash)]):
-                Util.debug(f"{os.path.basename(path)}-[{serial:02d}]", fmt_indent=12)
+                Util.debug(f"{os.path.basename(path)}-[{serial:02d}]", fmt_indent=9)
             else:
                 self._record_file_with_error(path)
 
@@ -209,7 +211,7 @@ class Scanner(Sweeper):
     def _record_file_with_error(self, path: str):
         self._stat.update_error(path)
 
-        Util.debug(f"!!! {os.path.basename(path)}", fmt_indent=3, fmt_time=True)
+        Util.debug(f"!!! {os.path.basename(path)}", fmt_time=True)
 
     def _flush_stat(self) -> str:
         f_stat = f"sweeper.{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml"

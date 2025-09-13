@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import traceback
 from typing import Dict, List, Optional, Tuple
 
 from src import Util
@@ -56,11 +57,12 @@ class HashDB:
             self.conn.commit()
 
             return cursor.lastrowid
-        except Exception as exp:
+        except Exception:
             Util.debug(
-                f"add_file(path={path}, name={name}, size={size}, mtime: {mtime}) -> {str(exp)}",
+                f"add_file(path={path}, name={name}, size={size}, mtime: {mtime})",
                 fmt_time=True,
             )
+            traceback.print_exc()
             self.conn.rollback()
 
             return -1
@@ -80,11 +82,12 @@ class HashDB:
             self.conn.commit()
 
             return True
-        except Exception as exp:
+        except Exception:
             Util.debug(
-                f"add_chunk_hashes(fid={fid}, hashes-{len(hashes)}={hashes[0]}) -> {str(exp)}",
+                f"add_chunk_hashes(fid={fid}, hashes-{len(hashes)}={hashes[0]})",
                 fmt_time=True,
             )
+            traceback.print_exc()
             self.conn.rollback()
 
             return False
@@ -131,8 +134,9 @@ class HashDB:
             self.conn.commit()
 
             return True
-        except Exception as exp:
-            Util.debug(f"update_file(fid={fid}) -> {str(exp)}", fmt_time=True)
+        except Exception:
+            Util.debug(f"update_file(fid={fid})", fmt_time=True)
+            traceback.print_exc()
             self.conn.rollback()
 
             return False
@@ -189,8 +193,9 @@ class HashDB:
             self.conn.commit()
 
             return True
-        except Exception as exp:
-            Util.debug(f"delete_chunk_hashes(fid={fid}) -> {str(exp)}", fmt_time=True)
+        except Exception:
+            Util.debug(f"delete_chunk_hashes(fid={fid})", fmt_time=True)
+            traceback.print_exc()
             self.conn.rollback()
 
             return False
@@ -203,8 +208,9 @@ class HashDB:
             self.conn.commit()
 
             return True
-        except Exception as exp:
-            Util.debug(f"delete_file(fid={fid}) -> {str(exp)}", fmt_time=True)
+        except Exception:
+            Util.debug(f"delete_file(fid={fid})", fmt_time=True)
+            traceback.print_exc()
             self.conn.rollback()
 
             return False

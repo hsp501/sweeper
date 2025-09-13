@@ -1,7 +1,9 @@
 import argparse
 import os
+import random
 import re
 import socket
+import traceback
 from typing import List, Optional, Tuple
 
 from src import Command, Key, Messanger, Role, Storage, Util
@@ -101,6 +103,7 @@ class Shrink(Storage):
             Util.debug("shrink dirs:", fmt_indent=9)
             for i, dir in enumerate(self._sweep_dirs):
                 Util.debug(f"{(i + 1):02d}: {dir}", fmt_indent=12)
+        print("")
         Util.debug(f"yaml entry: {os.path.abspath(self._yaml_file)}", fmt_indent=9)
         print("")
 
@@ -118,8 +121,9 @@ class Shrink(Storage):
                 fmt_time=True,
             )
             return True
-        except Exception as exp:
-            Util.debug(f"[{head}]failed:  {file} -> {str(exp)}", fmt_time=True)
+        except Exception:
+            Util.debug(f"[{head}]failed:  {file}", fmt_time=True)
+            traceback.print_exc()
             return False
 
     def _parse_original(self, original: str) -> Tuple[str, str]:
@@ -133,46 +137,66 @@ class Shrink(Storage):
         if not server_id or not file_original:
             return 0
 
-        if self._local_mode and not Util.check_file_size(file_original, size):
-            return 0
-
-        # 根据文件大小进行第一遍筛选
+        # 第一遍筛选 文件大小
         files_copy = [
             path for path in scan_result[2:] if Util.check_file_size(path, size)
         ]
         if not files_copy:
             return 0
 
+        if self._local_mode and Util.check_file_size(file_original, size):
+            files_copy.append(file_original)
+
+        # 第二遍筛选 sweep 目录的优先级
+        files_deletable = self._sort_deletable_files(files_copy)
+        if not files_deletable:
+            return 0
+
         # dry run 模式下不需要向服务器请求文件 hash
         if self._erase_mode:
-            file_hash = self._original_file_hash(
+            # 本地模式下随机选择一个文件让 server 计算 hash
+            if self._local_mode:
+                if len(files_copy) > len(files_deletable):
+                    files_safe = [
+                        file for file in files_copy if file not in files_deletable
+                    ]
+                    file_original = random.choices(files_safe)
+                else:
+                    file_original = random.choices(files_copy)
+                file_original = file_original[0]
+
+            server_hash = self._original_file_hash(
                 request_id=chunk_hash,
                 server_id=server_id,
                 path=file_original,
                 size=size,
             )
-            if not file_hash:
+            if not server_hash:
                 return 0
 
-            # 根据文件 hash 进行第二遍筛选
+            # 第三遍筛选 文件 hash
             files_copy = [
-                path for path in files_copy if self._ch.file_hash(path) == file_hash
+                path
+                for path in files_copy
+                if (self._local_mode and path == file_original)
+                or self._ch.file_hash(path) == server_hash
             ]
             if not files_copy:
                 return 0
 
-        if self._local_mode:
-            files_copy.append(file_original)
+            # 第四遍筛选 sweep 目录的优先级
+            files_deletable = self._sort_deletable_files(files_copy)
+            if not files_deletable:
+                return 0
+
+        copies, deleted = len(files_copy), 0
 
         # 本地模式时确保至少保留一个副本
-        copies, deleted = len(files_copy), 0
         if self._local_mode:
             copies -= 1
 
-        # 按配置中 sweeper 目录的优先级顺序排序
-        files_copy = self._sort_by_deletion_priority(files_copy)
-        while deleted < copies and files_copy:
-            file = files_copy.pop(0)
+        while deleted < copies and files_deletable:
+            file = files_deletable.pop(0)
             if not self._step_mode or self._get_user_decision(
                 f"[DUPL]delete:  {file} ? (yes/no) [no]: "
             ):
@@ -207,7 +231,7 @@ class Shrink(Storage):
         else:
             return None
 
-    def _sort_by_deletion_priority(self, files_copy: List) -> List:
+    def _sort_deletable_files(self, files_copy: List) -> List:
         sorted_copy = []
 
         for dir in self._sweep_dirs:

@@ -2,6 +2,7 @@ import json
 import os
 import socket
 import struct
+import traceback
 from enum import IntEnum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -99,11 +100,11 @@ class Messanger:
             self._socket.sendall(struct.pack("!I", len(raw)) + raw)
 
             if self._debug_mode:
-                self._debug_socket_data(message, True, fmt_indent=3, fmt_time=True)
+                self._debug_socket_data(message, send=True)
 
             return True
-        except Exception as exp:
-            Util.debug(f"send_json() -> {str(exp)}", fmt_time=True)
+        except Exception:
+            traceback.print_exc()
             return False
 
     def recv_json(self) -> Dict:
@@ -122,31 +123,36 @@ class Messanger:
 
             message = json.loads(data.decode())
             if self._debug_mode:
-                self._debug_socket_data(message, False, fmt_indent=3, fmt_time=True)
+                self._debug_socket_data(message, send=False)
 
             return message
-        except Exception as exp:
-            Util.debug(f"recv_json() -> {str(exp)}", fmt_time=True)
+        except Exception:
+            traceback.print_exc()
             return None
 
     def _debug_socket_data(
-        self, data: Dict, send: bool, *, fmt_indent: int, fmt_time: bool
+        self, data: Dict, *, send: bool, fmt_indent: int = 0, fmt_time: bool = True
     ):
-        time_space = 9 if fmt_time else 0
+        try:
+            time_space = 9 if fmt_time else 0
 
-        Util.debug(
-            f"{self._device_id} {'--->>>' if send else '<<<---'}:",
-            fmt_indent=fmt_indent,
-            fmt_time=fmt_time,
-        )
-        for k, v in data.items():
-            if k == Key.HASH:
-                Util.debug(f"{k}:", fmt_indent=fmt_indent + time_space)
-                for hash in v:
-                    hash = str(hash)[1:-1].replace("'", "")
-                    Util.debug(hash, fmt_indent=fmt_indent + time_space + 3)
-            else:
-                Util.debug(f"{k}: {v}", fmt_indent=fmt_indent + time_space)
+            Util.debug(
+                f"{self._device_id} {'--->>>' if send else '<<<---'}:",
+                fmt_indent=fmt_indent,
+                fmt_time=fmt_time,
+            )
+            for k, v in data.items():
+                if k == Key.HASH:
+                    Util.debug(f"{k}:", fmt_indent=fmt_indent + time_space)
+                    for hash in v:
+                        Util.debug(
+                            f"{hash['serial']:02d}: {hash['hash']} {hash['block_size']}",
+                            fmt_indent=fmt_indent + time_space + 1 + 3,
+                        )
+                else:
+                    Util.debug(f"{k}: {v}", fmt_indent=fmt_indent + time_space)
+        except Exception:
+            traceback.print_exc()
 
     def close(self) -> Any:
         try:
@@ -203,6 +209,10 @@ class Storage:
         self._ch = ChunkHash()
 
     def _show_sweep_dirs(self):
+        Util.debug(
+            f"{self._stat.files_to_scan} files locate {len(self._stat.size_group)} size groups",
+            fmt_time=True,
+        )
         Util.debug("sweep directory list:", fmt_time=True)
 
         for i, top in enumerate(self._sweep_dirs):
@@ -256,7 +266,6 @@ class Sweeper(Storage):
             if -1 != fid:
                 Util.debug(
                     f"{os.path.basename(path)}-{request_id}",
-                    fmt_indent=3,
                     fmt_time=True,
                 )
 
@@ -282,9 +291,7 @@ class Sweeper(Storage):
                 if -1 != fid and self._db.add_chunk_hashes(
                     fid=fid, hashes=[(serial, block_size, hash)]
                 ):
-                    Util.debug(
-                        f"{os.path.basename(path)}-[{serial:02d}]", fmt_indent=12
-                    )
+                    Util.debug(f"{os.path.basename(path)}-[{serial:02d}]", fmt_indent=9)
 
                 chunk = {"serial": serial, "block_size": block_size, "hash": hash}
                 if chunk_hashes is None:

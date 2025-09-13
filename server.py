@@ -65,8 +65,7 @@ class Server(Sweeper):
 
     def _handle_req_chunk_hash(self, request: Dict):
         Util.debug(
-            f"chunk hash: {os.path.basename(request[Key.PATH])}[{len(request[Key.HASH]):02d}]-{request[Key.REQUEST_ID]}",
-            fmt_indent=3,
+            f"req-check hash: {request[Key.REQUEST_ID]}-{os.path.basename(request[Key.PATH])}[{len(request[Key.HASH]):02d}]",
             fmt_time=True,
         )
         path = self._filter_by_hash(
@@ -89,11 +88,17 @@ class Server(Sweeper):
         size = request[Key.SIZE]
         request_id = request[Key.REQUEST_ID]
 
+        Util.debug(
+            f"req-calc hash: {request_id}-{os.path.basename(path)}[{size}]",
+            fmt_time=True,
+        )
+
         file_hash = None
         if self._device_id == request[Key.SERVER_ID] and Util.check_file_size(
             path, size
         ):
             file_hash = self._ch.file_hash(path)
+            Util.debug(f"{file_hash}-{os.path.basename(path)}", fmt_indent=24)
 
         msg = self._msg_builder.echo_calc_file_hash(
             device_id=self._device_id, request_id=request_id, hash=file_hash
@@ -122,23 +127,15 @@ class Server(Sweeper):
         while self._session[request_id]:
             path = self._session[request_id][0]
             if local_mode and path == client_path:
-                file_poped = self._session[request_id].pop(0)
+                self._session[request_id].pop(0)
                 if self._debug_mode:
-                    Util.debug(
-                        f"pop session file[local]: {file_poped}",
-                        fmt_indent=3,
-                        fmt_time=True,
-                    )
+                    Util.debug(f"pop session file[local]: {path}", fmt_indent=13)
                 continue
 
             if not self._check_hash(request_id, path, client_path, client_hash):
                 file_poped = self._session[request_id].pop(0)
                 if self._debug_mode:
-                    Util.debug(
-                        f"pop session file[hash]: {file_poped}",
-                        fmt_indent=3,
-                        fmt_time=True,
-                    )
+                    Util.debug(f"pop session file[hash]: {file_poped}", fmt_indent=13)
             else:
                 found = path
                 break
@@ -154,7 +151,6 @@ class Server(Sweeper):
         if not Util.is_serial_hashes(client_hash):
             Util.debug(
                 f"bad client chunk hashes: {os.path.basename(path)} <-> {os.path.basename(client_path)}",
-                fmt_indent=3,
                 fmt_time=True,
             )
             Util.debug("--- client hashes", fmt_indent=12)
@@ -182,12 +178,12 @@ class Server(Sweeper):
         head = f"{'>>>' if flag_initial else '<<<'} session files [{request_id}]:"
         session_files = self._session.get(request_id, None)
         if not session_files:
-            Util.debug(f"{head} None", fmt_indent=3, fmt_time=True)
+            Util.debug(f"{head} None", fmt_time=True)
             return
 
-        Util.debug(head, fmt_indent=3, fmt_time=True)
+        Util.debug(head, fmt_time=True)
         for i, path in enumerate(session_files):
-            Util.debug(f"{i:02d}: {path}", fmt_indent=12)
+            Util.debug(f"{i:02d}: {path}", fmt_indent=13)
 
 
 def parse_args():

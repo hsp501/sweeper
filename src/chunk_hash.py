@@ -1,4 +1,5 @@
 import hashlib
+import traceback
 from typing import Optional, Tuple
 
 HEAD_SIZE = 128 * 1024
@@ -47,20 +48,23 @@ class ChunkHash:
             start = HEAD_SIZE + (serial - 2) * BLOCK_SIZE
             blk_size = BLOCK_SIZE
 
-        readed = 0
-        md5 = hashlib.md5()
-        with open(path, "rb") as f:
-            f.seek(start)
+        try:
+            readed = 0
+            md5 = hashlib.md5()
+            with open(path, "rb") as f:
+                f.seek(start)
 
-            while blk_size > readed:
-                bytes_read = f.read(min(READ_SIZE, blk_size - readed))
-                if not bytes_read:
-                    break
+                while blk_size > readed:
+                    bytes_read = f.read(min(READ_SIZE, blk_size - readed))
+                    if not bytes_read:
+                        break
 
-                md5.update(bytes_read)
-                readed += len(bytes_read)
+                    md5.update(bytes_read)
+                    readed += len(bytes_read)
 
-        return md5.hexdigest(), readed
+            return md5.hexdigest(), readed
+        except Exception:
+            traceback.print_exc()
 
     def file_hash(self, path, chunk_size=READ_SIZE) -> Optional[str]:
         try:
@@ -72,4 +76,5 @@ class ChunkHash:
 
             return md5.hexdigest()
         except Exception:
+            traceback.print_exc()
             return None

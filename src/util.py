@@ -2,6 +2,7 @@ import os
 import random
 import stat
 import string
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -86,5 +87,9 @@ class Util:
     def stat(path: str, *, follow_symlinks: bool = False):
         try:
             return os.stat(path, follow_symlinks=follow_symlinks)
+        except FileNotFoundError:
+            pass
         except Exception:
-            return None
+            traceback.print_exc()
+
+        return None
