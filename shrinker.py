@@ -37,7 +37,9 @@ class Shrink(Storage):
             for dir in self._sweep_dirs
             if os.path.isabs(dir) and os.path.exists(dir)
         ]
-        self._extensions = self._config["file_extensions"]
+        self._extensions = [
+            ext.lower() for ext in self._config["file_extensions"] if ext
+        ]
 
     def start(self):
         if not self._sweep_dirs:

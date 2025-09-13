@@ -79,7 +79,7 @@ class Util:
     def file_basic_check(path: str, size: int, *, extensions: List = None) -> bool:
         if os.path.isabs(path) and os.path.exists(path):
             if extensions:
-                _, ext = os.path.split(path)
+                _, ext = os.path.splitext(path)
                 if ext:
                     ext = ext.lower()
                 if ext not in extensions:

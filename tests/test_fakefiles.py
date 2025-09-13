@@ -149,14 +149,23 @@ class TestFakeFiles(unittest.TestCase):
         for name in names:
             blocks = self._name2blocks(name)
             self._create_file(
-                os.path.join(self._dir_fake, "sub1", f"sam_{name}-sub1"), blocks
+                os.path.join(
+                    self._dir_fake, "sub1", f"sam_{name}-sub1{self._random_ext()}"
+                ),
+                blocks,
             )
             self._create_file(
-                os.path.join(self._dir_fake, "sub2", f"sam_{name}-sub2"), blocks
+                os.path.join(
+                    self._dir_fake, "sub2", f"sam_{name}-sub2{self._random_ext()}"
+                ),
+                blocks,
             )
             if 1 == random.randint(0, 2):
                 self._create_file(
-                    os.path.join(self._dir_fake, "sub3", f"sam_{name}-sub3"), blocks
+                    os.path.join(
+                        self._dir_fake, "sub3", f"sam_{name}-sub3{self._random_ext()}"
+                    ),
+                    blocks,
                 )
 
     # h1-b23-t5 -> ['1', '2', '3', '5'] or '1235' -> serial
@@ -195,7 +204,9 @@ class TestFakeFiles(unittest.TestCase):
             blocks = self._name2blocks(name)
             self._create_file(
                 os.path.join(
-                    self._dir_fake, f"sub{random.randint(1, 3)}", f"sim_{name}"
+                    self._dir_fake,
+                    f"sub{random.randint(1, 3)}",
+                    f"sim_{name}{self._random_ext()}",
                 ),
                 blocks,
             )
@@ -207,10 +218,15 @@ class TestFakeFiles(unittest.TestCase):
             blocks = self._name2blocks(name)
             self._create_file(
                 os.path.join(
-                    self._dir_fake, f"sub{random.randint(1, 3)}", f"dif_{name}"
+                    self._dir_fake,
+                    f"sub{random.randint(1, 3)}",
+                    f"dif_{name}{self._random_ext()}",
                 ),
                 blocks,
             )
+
+    def _random_ext(self) -> str:
+        return random.choices([".bin", ".zip", ".tar", ".data"])[0]
 
     def test_fake_files(self):
         for i in range(3):
