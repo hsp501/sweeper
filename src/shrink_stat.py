@@ -11,6 +11,7 @@ class ShrinkStat:
         self._files_0bytes = []
         self._files_errors = []
         self._files_duplicate = {}
+        self._files_ext = []
 
         self._limit_delete, self._limit_scan = limit_delete, limit_scan
 
@@ -105,6 +106,10 @@ class ShrinkStat:
             self._deleted += 1
             self._shrink_bytes += free_space
 
+            self._update_extension(client_path)
+            if local_mode:
+                self._update_extension(server_path)
+
         return flag
 
     @property
@@ -148,6 +153,17 @@ class ShrinkStat:
     def scaned(self) -> int:
         return self._scaned
 
+    @property
+    def extensions(self) -> List:
+        return self._files_ext
+
     def on_erase(self, free_space: int):
         self._deleted += 1
         self._shrink_bytes += free_space
+
+    def _update_extension(self, path: str):
+        _, ext = os.path.splitext(path)
+        if ext:
+            ext = ext.lower()
+            if ext not in self._files_ext:
+                self._files_ext.append(ext)

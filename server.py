@@ -94,7 +94,7 @@ class Server(Sweeper):
         )
 
         file_hash = None
-        if self._device_id == request[Key.SERVER_ID] and Util.check_file_size(
+        if self._device_id == request[Key.SERVER_ID] and Util.file_basic_check(
             path, size
         ):
             file_hash = self._ch.file_hash(path)

@@ -37,6 +37,7 @@ class Shrink(Storage):
             for dir in self._sweep_dirs
             if os.path.isabs(dir) and os.path.exists(dir)
         ]
+        self._extensions = self._config["file_extensions"]
 
     def start(self):
         if not self._sweep_dirs:
@@ -70,7 +71,7 @@ class Shrink(Storage):
 
     def _remove_blanks(self):
         for file in self._config["blank"]:
-            if not Util.check_file_size(file, 0):
+            if not Util.file_basic_check(file, 0):
                 continue
 
             if not self._step_mode or self._get_user_decision(
@@ -99,13 +100,19 @@ class Shrink(Storage):
             mode += f": ** {'with' if self._step_mode else 'without'} ** confirmation before deletion"
             mode += f"\n {' ' * 20}** {'delete' if self._erase_blank else 'keep'} ** blank files"
         Util.debug(mode, fmt_indent=9)
+
         if self._sweep_dirs:
             Util.debug("shrink dirs:", fmt_indent=9)
             for i, dir in enumerate(self._sweep_dirs):
                 Util.debug(f"{(i + 1):02d}: {dir}", fmt_indent=12)
         print("")
-        Util.debug(f"yaml entry: {os.path.abspath(self._yaml_file)}", fmt_indent=9)
-        print("")
+
+        Util.debug(
+            f"file extensions: {'any extension' if not self._extensions else ', '.join(self._extensions)}\n",
+            fmt_indent=9,
+        )
+
+        Util.debug(f"yaml entry: {os.path.abspath(self._yaml_file)}\n", fmt_indent=9)
 
         return self._get_user_decision("Proceed? (yes/no) [no]: ", default=False)
 
@@ -137,14 +144,18 @@ class Shrink(Storage):
         if not server_id or not file_original:
             return 0
 
-        # 第一遍筛选 文件大小
+        # 第一遍筛选 文件大小 扩展名
         files_copy = [
-            path for path in scan_result[2:] if Util.check_file_size(path, size)
+            path
+            for path in scan_result[2:]
+            if Util.file_basic_check(path, size, extensions=self._extensions)
         ]
         if not files_copy:
             return 0
 
-        if self._local_mode and Util.check_file_size(file_original, size):
+        if self._local_mode and Util.file_basic_check(
+            file_original, size, extensions=self._extensions
+        ):
             files_copy.append(file_original)
 
         # 第二遍筛选 sweep 目录的优先级

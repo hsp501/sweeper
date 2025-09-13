@@ -76,8 +76,15 @@ class Util:
             return False
 
     @staticmethod
-    def check_file_size(path: str, size: int) -> bool:
+    def file_basic_check(path: str, size: int, *, extensions: List = None) -> bool:
         if os.path.isabs(path) and os.path.exists(path):
+            if extensions:
+                _, ext = os.path.split(path)
+                if ext:
+                    ext = ext.lower()
+                if ext not in extensions:
+                    return False
+
             fstat = os.stat(path, follow_symlinks=False)
             return stat.S_ISREG(fstat.st_mode) and fstat.st_size == size
 
