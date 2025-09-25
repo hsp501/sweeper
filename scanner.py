@@ -302,6 +302,7 @@ def parse_args():
 
 if "__main__" == __name__:
     try:
+        scanner = None
         args = parse_args()
         scanner = Scanner(
             args.yaml,
@@ -313,6 +314,7 @@ if "__main__" == __name__:
     except KeyboardInterrupt:
         pass
     finally:
-        log = scanner.stop()
-        print("")
-        Util.debug(f"log: {log}", fmt_time=True)
+        if scanner:
+            log = scanner.stop()
+            print("")
+            Util.debug(f"log: {log}", fmt_time=True)

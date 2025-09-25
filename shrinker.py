@@ -17,6 +17,7 @@ class Shrink(Storage):
         debug_mode=False,
         limit_delete=0,
         erase_mode=False,
+        fast_delete=False,
         step_mode=True,
         erase_blank=False,
     ):
@@ -25,6 +26,7 @@ class Shrink(Storage):
         )
 
         self._erase_mode = erase_mode
+        self._fast_delete = fast_delete
         self._step_mode = step_mode
         self._erase_blank = erase_blank
 
@@ -100,6 +102,7 @@ class Shrink(Storage):
         mode = f"{'erase' if self._erase_mode else 'dry run'} mode"
         if self._erase_mode:
             mode += f": ** {'with' if self._step_mode else 'without'} ** confirmation before deletion"
+            mode += f"\n {' ' * 20}** {'without' if self._fast_delete else 'with'} ** file hash comparison before deletion"
             mode += f"\n {' ' * 20}** {'delete' if self._erase_blank else 'keep'} ** blank files"
         Util.debug(mode, fmt_indent=9)
 
@@ -166,7 +169,7 @@ class Shrink(Storage):
             return 0
 
         # dry run 模式下不需要向服务器请求文件 hash
-        if self._erase_mode:
+        if self._erase_mode and not self._fast_delete:
             # 本地模式下随机选择一个文件让 server 计算 hash
             if self._local_mode:
                 if len(files_copy) > len(files_deletable):
@@ -310,6 +313,13 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--fast_delete",
+        action="store_true",
+        default=False,
+        help="without file hash comparison against server before actually delete the files",
+    )
+
+    parser.add_argument(
         "--blank",
         action="store_true",
         default=False,
@@ -348,6 +358,7 @@ if "__main__" == __name__:
             debug_mode=args.debug,
             limit_delete=args.delete,
             erase_mode=args.erase,
+            fast_delete=args.fast_delete,
             step_mode=not args.auto,
             erase_blank=args.blank,
         )

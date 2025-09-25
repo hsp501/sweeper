@@ -209,10 +209,12 @@ def parse_args():
 
 if "__main__" == __name__:
     try:
+        server = None
         args = parse_args()
         server = Server(args.yaml, debug_mode=args.debug)
         server.start()
     except KeyboardInterrupt:
         pass
     finally:
-        server.stop()
+        if server:
+            server.stop()
