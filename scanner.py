@@ -174,7 +174,8 @@ class Scanner(Sweeper):
 
             # update next chunk
             flag_time = False
-            self._update_next_chunk(fid, path, chunk_hashes)
+            if not self._update_next_chunk(fid, path, chunk_hashes):
+                break
 
     def _check_chunk_hashes(self, msg: Dict) -> Tuple[bool, Optional[Dict]]:
         # return value (error_flag, echo_message)
@@ -196,9 +197,13 @@ class Scanner(Sweeper):
 
         return False, echo_message
 
-    def _update_next_chunk(self, fid: int, path: str, chunk_hashes: List):
+    def _update_next_chunk(self, fid: int, path: str, chunk_hashes: List) -> bool:
         serial = len(chunk_hashes) + 1
         hash, block_size = self._ch.block_hash(path=path, serial=serial)
+        if not hash:
+            self._record_file_with_error(path)
+            return False
+
         self._stat.on_hash(block_size)
         if -1 != fid:
             if self._db.add_chunk_hashes(fid=fid, hashes=[(serial, block_size, hash)]):
@@ -207,6 +212,7 @@ class Scanner(Sweeper):
                 self._record_file_with_error(path)
 
         chunk_hashes.append({"serial": serial, "block_size": block_size, "hash": hash})
+        return True
 
     def _record_file_with_error(self, path: str):
         self._stat.update_error(path)

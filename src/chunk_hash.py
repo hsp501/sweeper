@@ -65,6 +65,7 @@ class ChunkHash:
             return md5.hexdigest(), readed
         except Exception:
             traceback.print_exc()
+            return None, 0
 
     def file_hash(self, path, chunk_size=READ_SIZE) -> Optional[str]:
         try:
