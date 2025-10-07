@@ -1,8 +1,10 @@
 import argparse
 import os
+import platform
 import random
 import re
 import socket
+import stat
 import traceback
 from typing import List, Optional, Tuple
 
@@ -126,7 +128,16 @@ class Shrink(Storage):
 
         try:
             if self._erase_mode:
-                os.remove(file)
+                try:
+                    os.remove(file)
+                except PermissionError as exp:
+                    if "Windows" == platform.system() and (
+                        os.stat(file).st_mode & stat.S_IREAD
+                    ):
+                        os.chmod(file, stat.S_IWRITE)
+                        os.remove(file)
+                    else:
+                        raise exp
 
             Util.debug(
                 f"[{head}]removed{'' if self._erase_mode else '-dry'}: {file}",
