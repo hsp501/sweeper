@@ -39,7 +39,7 @@ def _scan(top: str, delete: bool = False):
         if not flag_break:
             dirs_blank.append(dir)
 
-    for dir in dirs_blank:
+    for idx, dir in enumerate(dirs_blank):
         info = dir
         if delete and "Windows" == platform.system():
             try:
@@ -47,7 +47,7 @@ def _scan(top: str, delete: bool = False):
                 info += " [deleted]"
             except Exception:
                 info += " [failed]"
-        Util.debug(info, fmt_indent=2)
+        Util.debug(f"{idx + 1}: {info}", fmt_indent=2)
 
 
 if "__main__" == __name__:
